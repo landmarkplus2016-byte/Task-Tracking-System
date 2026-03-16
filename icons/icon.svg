@@ -1,0 +1,20 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512">
+  <!-- Background rounded square -->
+  <rect width="512" height="512" rx="96" fill="#1a56db"/>
+
+  <!-- Clipboard body -->
+  <rect x="136" y="160" width="240" height="288" rx="16" fill="#ffffff"/>
+
+  <!-- Clipboard top clip -->
+  <rect x="208" y="136" width="96" height="48" rx="12" fill="#1e429f"/>
+  <rect x="220" y="148" width="72" height="24" rx="8" fill="#ffffff"/>
+
+  <!-- Lines on clipboard -->
+  <rect x="168" y="232" width="176" height="14" rx="7" fill="#bfdbfe"/>
+  <rect x="168" y="266" width="176" height="14" rx="7" fill="#bfdbfe"/>
+  <rect x="168" y="300" width="120" height="14" rx="7" fill="#bfdbfe"/>
+
+  <!-- Checkmark circle -->
+  <circle cx="328" cy="344" r="52" fill="#057a55"/>
+  <polyline points="304,344 320,362 356,324" fill="none" stroke="#ffffff" stroke-width="14" stroke-linecap="round" stroke-linejoin="round"/>
+</svg>

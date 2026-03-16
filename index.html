@@ -1,0 +1,245 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Task Tracking System – Telecom Department</title>
+
+    <!-- PWA -->
+    <link rel="manifest" href="manifest.json">
+    <meta name="theme-color" content="#1a56db">
+    <meta name="apple-mobile-web-app-capable" content="yes">
+    <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+    <meta name="apple-mobile-web-app-title" content="Task Tracker">
+    <link rel="apple-touch-icon" href="icons/icon.svg">
+
+    <link rel="stylesheet" href="css/styles.css">
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/xlsx/0.18.5/xlsx.full.min.js"></script>
+</head>
+<body>
+
+    <header>
+        <div class="header-content">
+            <div class="header-icon">📋</div>
+            <div class="header-text">
+                <h1>Task Tracking System</h1>
+                <p>Telecom Department — Coordinator Sheet Comparator</p>
+            </div>
+        </div>
+    </header>
+
+    <main>
+
+        <!-- ── Tab Bar ──────────────────────────────────────────── -->
+        <div class="tab-bar" role="tablist">
+            <button class="tab-btn tab-btn--active"
+                    id="tabBtnTracking"
+                    role="tab"
+                    aria-selected="true"
+                    aria-controls="panelTracking">
+                📋 Tracking Update
+            </button>
+            <button class="tab-btn"
+                    id="tabBtnSiteId"
+                    role="tab"
+                    aria-selected="false"
+                    aria-controls="panelSiteId">
+                🔗 Site ID-JC File
+            </button>
+        </div>
+
+        <!-- ══════════════════════════════════════════════════════ -->
+        <!-- Tab Panel: Tracking Update                            -->
+        <!-- ══════════════════════════════════════════════════════ -->
+        <div class="tab-panel tab-panel--active" id="panelTracking" role="tabpanel">
+
+            <!-- ── Upload Cards ─────────────────────────────────── -->
+            <section class="upload-section">
+                <div class="upload-grid">
+
+                    <!-- Coordinator Sheets -->
+                    <div class="upload-card" id="coordinatorCard">
+                        <div class="card-header">
+                            <span class="card-icon">📁</span>
+                            <div>
+                                <h2>Coordinator Sheets</h2>
+                                <p>Drop multiple files or browse</p>
+                            </div>
+                        </div>
+                        <div class="drop-zone" id="coordinatorDropZone">
+                            <div class="drop-zone-inner">
+                                <div class="drop-icon">⬆</div>
+                                <p class="drop-text">Drag &amp; drop files here</p>
+                                <label class="btn btn-outline" for="coordinatorInput">Browse</label>
+                                <input type="file" id="coordinatorInput" multiple hidden>
+                            </div>
+                        </div>
+                        <div class="card-upload-progress" id="coordinatorProgress" hidden>
+                            <div class="card-upload-bar" id="coordinatorBar"></div>
+                        </div>
+                        <div class="file-list" id="coordinatorFileList">
+                            <p class="no-files">No files uploaded yet</p>
+                        </div>
+                    </div>
+
+                    <!-- Master Tracking -->
+                    <div class="upload-card" id="masterCard">
+                        <div class="card-header">
+                            <span class="card-icon">📊</span>
+                            <div>
+                                <h2>Master Tracking</h2>
+                                <p>Drop the master file or browse</p>
+                            </div>
+                        </div>
+                        <div class="drop-zone" id="masterDropZone">
+                            <div class="drop-zone-inner">
+                                <div class="drop-icon">⬆</div>
+                                <p class="drop-text">Drag &amp; drop file here</p>
+                                <label class="btn btn-outline" for="masterInput">Browse</label>
+                                <input type="file" id="masterInput" hidden>
+                            </div>
+                        </div>
+                        <div class="card-upload-progress" id="masterProgress" hidden>
+                            <div class="card-upload-bar" id="masterBar"></div>
+                        </div>
+                        <div class="file-list" id="masterFileList">
+                            <p class="no-files">No file uploaded yet</p>
+                        </div>
+                    </div>
+
+                </div>
+            </section>
+
+            <!-- ── Comparison Progress ───────────────────────────── -->
+            <div class="progress-section" id="progressSection" hidden>
+                <div class="progress-bar-container">
+                    <div class="progress-bar" id="progressBar"></div>
+                </div>
+                <p class="progress-text" id="progressText">Processing…</p>
+            </div>
+
+            <!-- ── Results ──────────────────────────────────────── -->
+            <section class="results-section" id="resultsSection" hidden>
+                <h2>Results</h2>
+
+                <div class="results-grid">
+                    <div class="result-card result-new">
+                        <div class="result-number" id="newCount">0</div>
+                        <div class="result-label">New Entries</div>
+                    </div>
+                    <div class="result-card result-changed">
+                        <div class="result-number" id="changedCount">0</div>
+                        <div class="result-label">Changed Entries</div>
+                    </div>
+                    <div class="result-card result-unchanged">
+                        <div class="result-number" id="unchangedCount">0</div>
+                        <div class="result-label">Unchanged</div>
+                    </div>
+                    <div class="result-card result-total">
+                        <div class="result-number" id="totalCount">0</div>
+                        <div class="result-label">Total Entries</div>
+                    </div>
+                </div>
+
+                <div class="jc-conflicts-panel" id="jcConflictsPanel" hidden>
+                    <h3 id="jcConflictsTitle"></h3>
+                    <ul id="jcConflictsList"></ul>
+                </div>
+
+                <div class="warnings-panel" id="warningsPanel" hidden>
+                    <h3>⚠ Warnings</h3>
+                    <ul id="warningsList"></ul>
+                </div>
+
+                <div class="download-bar">
+                    <button class="btn btn-success btn-large" id="downloadBtn">
+                        <span>⬇</span> Download Results Excel
+                    </button>
+                </div>
+            </section>
+
+        </div><!-- /panelTracking -->
+
+        <!-- ══════════════════════════════════════════════════════ -->
+        <!-- Tab Panel: Site ID-JC File                           -->
+        <!-- ══════════════════════════════════════════════════════ -->
+        <div class="tab-panel" id="panelSiteId" role="tabpanel" hidden>
+
+            <!-- ── Upload Card ──────────────────────────────────── -->
+            <section class="upload-section">
+                <div class="upload-grid upload-grid--single">
+
+                    <div class="upload-card" id="siteIdCard">
+                        <div class="card-header">
+                            <span class="card-icon">📊</span>
+                            <div>
+                                <h2>Master Sheet</h2>
+                                <p>Drop the master file or browse — reads "Invoicing Track" sheet</p>
+                            </div>
+                        </div>
+                        <div class="drop-zone" id="siteIdDropZone">
+                            <div class="drop-zone-inner">
+                                <div class="drop-icon">⬆</div>
+                                <p class="drop-text">Drag &amp; drop file here</p>
+                                <label class="btn btn-outline" for="siteIdInput">Browse</label>
+                                <input type="file" id="siteIdInput" hidden>
+                            </div>
+                        </div>
+                        <div class="card-upload-progress" id="siteIdProgress" hidden>
+                            <div class="card-upload-bar" id="siteIdBar"></div>
+                        </div>
+                        <div class="file-list" id="siteIdFileList">
+                            <p class="no-files">No file uploaded yet</p>
+                        </div>
+                    </div>
+
+                </div>
+            </section>
+
+            <!-- ── Processing Progress ───────────────────────────── -->
+            <div class="progress-section" id="siteIdProgressSection" hidden>
+                <div class="progress-bar-container">
+                    <div class="progress-bar" id="siteIdProgressBar"></div>
+                </div>
+                <p class="progress-text" id="siteIdProgressText">Processing…</p>
+            </div>
+
+            <!-- ── Results ──────────────────────────────────────── -->
+            <section class="results-section" id="siteIdResultsSection" hidden>
+                <h2>Site ID-JC Output</h2>
+
+                <div class="results-grid results-grid--single">
+                    <div class="result-card result-total">
+                        <div class="result-number" id="siteIdRowCount">0</div>
+                        <div class="result-label">Rows Generated</div>
+                    </div>
+                </div>
+
+                <div class="download-bar">
+                    <button class="btn btn-success btn-large" id="siteIdDownloadBtn">
+                        <span>⬇</span> Download Site ID-JC Excel
+                    </button>
+                </div>
+            </section>
+
+        </div><!-- /panelSiteId -->
+
+    </main>
+
+    <footer>
+        <p>Task Tracking System &copy; Telecom Department</p>
+    </footer>
+
+    <script src="js/fileHandler.js"></script>
+    <script src="js/comparison.js"></script>
+    <script src="js/excelExport.js"></script>
+    <script src="js/siteIdJc.js"></script>
+    <script src="js/app.js"></script>
+    <script>
+        if ('serviceWorker' in navigator) {
+            navigator.serviceWorker.register('sw.js').catch(() => {});
+        }
+    </script>
+
+</body>
+</html>

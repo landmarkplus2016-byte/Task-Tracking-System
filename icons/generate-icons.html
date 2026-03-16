@@ -1,0 +1,119 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <title>Icon Generator</title>
+    <style>
+        body { font-family: sans-serif; padding: 32px; background: #f3f4f6; }
+        h2   { margin-bottom: 16px; }
+        canvas { display: block; margin: 8px 0; border: 1px solid #ddd; border-radius: 8px; background: #fff; }
+        button { margin: 8px 4px 8px 0; padding: 10px 22px; font-size: .9rem;
+                 background: #1a56db; color: #fff; border: none; border-radius: 6px; cursor: pointer; }
+        button:hover { background: #1e429f; }
+        p { color: #555; font-size: .88rem; margin-bottom: 12px; }
+    </style>
+</head>
+<body>
+<h2>Task Tracker — PWA Icon Generator</h2>
+<p>Click each button to download the PNG. Place both files inside the <code>icons/</code> folder.</p>
+
+<canvas id="c192" width="192" height="192"></canvas>
+<button onclick="save('c192','icon-192.png')">Download icon-192.png</button>
+
+<canvas id="c512" width="512" height="512"></canvas>
+<button onclick="save('c512','icon-512.png')">Download icon-512.png</button>
+
+<script>
+function drawIcon(canvas) {
+    const s  = canvas.width;
+    const sc = s / 512;           // scale factor relative to 512 px design
+    const ctx = canvas.getContext('2d');
+
+    // Background rounded square
+    const r = 96 * sc;
+    ctx.beginPath();
+    ctx.moveTo(r, 0);
+    ctx.lineTo(s - r, 0);
+    ctx.quadraticCurveTo(s, 0, s, r);
+    ctx.lineTo(s, s - r);
+    ctx.quadraticCurveTo(s, s, s - r, s);
+    ctx.lineTo(r, s);
+    ctx.quadraticCurveTo(0, s, 0, s - r);
+    ctx.lineTo(0, r);
+    ctx.quadraticCurveTo(0, 0, r, 0);
+    ctx.closePath();
+    ctx.fillStyle = '#1a56db';
+    ctx.fill();
+
+    // Clipboard body
+    ctx.beginPath();
+    const cbX = 136 * sc, cbY = 160 * sc, cbW = 240 * sc, cbH = 288 * sc, cbR = 16 * sc;
+    ctx.moveTo(cbX + cbR, cbY);
+    ctx.lineTo(cbX + cbW - cbR, cbY);
+    ctx.quadraticCurveTo(cbX + cbW, cbY, cbX + cbW, cbY + cbR);
+    ctx.lineTo(cbX + cbW, cbY + cbH - cbR);
+    ctx.quadraticCurveTo(cbX + cbW, cbY + cbH, cbX + cbW - cbR, cbY + cbH);
+    ctx.lineTo(cbX + cbR, cbY + cbH);
+    ctx.quadraticCurveTo(cbX, cbY + cbH, cbX, cbY + cbH - cbR);
+    ctx.lineTo(cbX, cbY + cbR);
+    ctx.quadraticCurveTo(cbX, cbY, cbX + cbR, cbY);
+    ctx.closePath();
+    ctx.fillStyle = '#ffffff';
+    ctx.fill();
+
+    // Clipboard top clip (dark)
+    roundRect(ctx, 208 * sc, 136 * sc, 96 * sc, 48 * sc, 12 * sc, '#1e429f');
+    // Inner white notch
+    roundRect(ctx, 220 * sc, 148 * sc, 72 * sc, 24 * sc, 8 * sc, '#ffffff');
+
+    // Lines
+    roundRect(ctx, 168 * sc, 232 * sc, 176 * sc, 14 * sc, 7 * sc, '#bfdbfe');
+    roundRect(ctx, 168 * sc, 266 * sc, 176 * sc, 14 * sc, 7 * sc, '#bfdbfe');
+    roundRect(ctx, 168 * sc, 300 * sc, 120 * sc, 14 * sc, 7 * sc, '#bfdbfe');
+
+    // Checkmark circle
+    ctx.beginPath();
+    ctx.arc(328 * sc, 344 * sc, 52 * sc, 0, Math.PI * 2);
+    ctx.fillStyle = '#057a55';
+    ctx.fill();
+
+    // Checkmark tick
+    ctx.beginPath();
+    ctx.moveTo(304 * sc, 344 * sc);
+    ctx.lineTo(320 * sc, 362 * sc);
+    ctx.lineTo(356 * sc, 324 * sc);
+    ctx.strokeStyle = '#ffffff';
+    ctx.lineWidth   = 14 * sc;
+    ctx.lineCap     = 'round';
+    ctx.lineJoin    = 'round';
+    ctx.stroke();
+}
+
+function roundRect(ctx, x, y, w, h, r, fill) {
+    ctx.beginPath();
+    ctx.moveTo(x + r, y);
+    ctx.lineTo(x + w - r, y);
+    ctx.quadraticCurveTo(x + w, y, x + w, y + r);
+    ctx.lineTo(x + w, y + h - r);
+    ctx.quadraticCurveTo(x + w, y + h, x + w - r, y + h);
+    ctx.lineTo(x + r, y + h);
+    ctx.quadraticCurveTo(x, y + h, x, y + h - r);
+    ctx.lineTo(x, y + r);
+    ctx.quadraticCurveTo(x, y, x + r, y);
+    ctx.closePath();
+    ctx.fillStyle = fill;
+    ctx.fill();
+}
+
+function save(canvasId, filename) {
+    const a = document.createElement('a');
+    a.href     = document.getElementById(canvasId).toDataURL('image/png');
+    a.download = filename;
+    a.click();
+}
+
+drawIcon(document.getElementById('c192'));
+drawIcon(document.getElementById('c512'));
+</script>
+</body>
+</html>
