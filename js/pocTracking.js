@@ -1,18 +1,18 @@
 /**
- * app.js
+ * pocTracking.js
  * ──────────────────────────────────────────────────────────────
- * Main application entry point.
- * Ties together FileHandler, Comparison, and ExcelExport modules.
- * Auto-triggers comparison 600 ms after files are added/removed.
+ * POC Tracking Update tab.
+ * Same logic as app.js but uses "Job Code" as the unique identifier.
+ * Duplicate Job Codes are highlighted prominently in the results.
  */
 
-(() => {
+const PocTracking = (() => {
     'use strict';
 
     /* ── Fixed Configuration ──────────────────────────────────── */
-    const ID_COLUMN       = 'ID#';
-    const MASTER_SHEET    = 'Invoicing Track';
-    const CASE_SENSITIVE  = false;
+    const ID_COLUMN        = 'Job Code';
+    const MASTER_SHEET     = 'POC3 Tracking';
+    const CASE_SENSITIVE   = false;
     const INCLUDE_UNCHANGED = false;
 
     /* ── Application State ────────────────────────────────────── */
@@ -73,27 +73,6 @@
     /* ── DOM References ───────────────────────────────────────── */
     const $ = id => document.getElementById(id);
 
-    const coordinatorDropZone  = $('coordinatorDropZone');
-    const coordinatorInput     = $('coordinatorInput');
-    const coordinatorFileList  = $('coordinatorFileList');
-    const coordinatorProgress  = $('coordinatorProgress');
-    const coordinatorBar       = $('coordinatorBar');
-
-    const masterDropZone       = $('masterDropZone');
-    const masterInput          = $('masterInput');
-    const masterFileList       = $('masterFileList');
-    const masterProgress       = $('masterProgress');
-    const masterBar            = $('masterBar');
-
-    const progressSection      = $('progressSection');
-    const progressBar          = $('progressBar');
-    const progressText         = $('progressText');
-
-    const resultsSection       = $('resultsSection');
-    const warningsPanel        = $('warningsPanel');
-    const warningsList         = $('warningsList');
-    const downloadBtn          = $('downloadBtn');
-
     /* ── Helpers ──────────────────────────────────────────────── */
     function escHtml(str) {
         return str
@@ -105,6 +84,9 @@
 
     /* ── File List Rendering ──────────────────────────────────── */
     function renderCoordinatorFiles() {
+        const coordinatorFileList = $('pocCoordinatorFileList');
+        const coordinatorDropZone = $('pocCoordinatorDropZone');
+
         if (state.coordinatorFiles.length === 0) {
             coordinatorFileList.innerHTML = '<p class="no-files">No files uploaded yet</p>';
             coordinatorDropZone.classList.remove('has-files');
@@ -134,6 +116,9 @@
     }
 
     function renderMasterFile() {
+        const masterFileList  = $('pocMasterFileList');
+        const masterDropZone  = $('pocMasterDropZone');
+
         if (!state.masterFile) {
             masterFileList.innerHTML = '<p class="no-files">No file uploaded yet</p>';
             masterDropZone.classList.remove('has-files');
@@ -148,89 +133,30 @@
                     <span class="fname" title="${escHtml(state.masterFile.name)}">${escHtml(state.masterFile.name)}</span>
                     <span class="file-status">✓</span>
                 </div>
-                <button class="file-remove" id="removeMasterBtn" title="Remove this file">✕</button>
+                <button class="file-remove" id="pocRemoveMasterBtn" title="Remove this file">✕</button>
             </div>
         `;
 
-        $('removeMasterBtn').addEventListener('click', () => {
+        $('pocRemoveMasterBtn').addEventListener('click', () => {
             state.masterFile = null;
             renderMasterFile();
             scheduleAutoProcess();
         });
     }
 
-    /* ── Tab Switching ────────────────────────────────────────── */
-    function initTabs() {
-        const buttons    = document.querySelectorAll('.tab-btn');
-        const panels     = document.querySelectorAll('.tab-panel');
-        const topbarTitle = document.getElementById('topbarTitle');
-
-        buttons.forEach(btn => {
-            btn.addEventListener('click', () => {
-                const targetId = btn.getAttribute('aria-controls');
-
-                buttons.forEach(b => {
-                    b.classList.remove('tab-btn--active');
-                    b.setAttribute('aria-selected', 'false');
-                });
-                panels.forEach(p => {
-                    p.hidden = true;
-                    p.classList.remove('tab-panel--active');
-                });
-
-                btn.classList.add('tab-btn--active');
-                btn.setAttribute('aria-selected', 'true');
-                const panel = document.getElementById(targetId);
-                if (panel) {
-                    panel.hidden = false;
-                    panel.classList.add('tab-panel--active');
-                }
-
-                // Update topbar title to match the active tab label
-                if (topbarTitle) {
-                    topbarTitle.textContent = btn.textContent.trim();
-                }
-            });
-        });
-    }
-
-    /* ── Drop Zone Setup ──────────────────────────────────────── */
-    FileHandler.setupDropZone(coordinatorDropZone, coordinatorInput, (files) => {
-        files.forEach(f => {
-            if (!state.coordinatorFiles.find(e => e.name === f.name && e.size === f.size)) {
-                state.coordinatorFiles.push(f);
-            }
-        });
-        renderCoordinatorFiles();
-        flashCardBar(coordinatorProgress, coordinatorBar);
-        scheduleAutoProcess();
-    }, true);
-
-    FileHandler.setupDropZone(masterDropZone, masterInput, (files) => {
-        state.masterFile = files[0];
-        renderMasterFile();
-        flashCardBar(masterProgress, masterBar);
-        scheduleAutoProcess();
-    }, false);
-
     /* ── Auto-trigger ─────────────────────────────────────────── */
     let autoTimer = null;
 
     function scheduleAutoProcess() {
         if (autoTimer) clearTimeout(autoTimer);
-
-        // Need both coordinator files and master file to run
         if (state.coordinatorFiles.length === 0 || !state.masterFile) return;
-
         autoTimer = setTimeout(() => runProcess(), 600);
     }
 
     /* ── Card Upload Progress Flash ───────────────────────────── */
-    // Shows a quick fill animation on drop, then hides after 800 ms.
     function flashCardBar(progressEl, barEl) {
         progressEl.hidden = false;
         barEl.style.width = '0%';
-        // Kick off the animation in the next frame so the transition fires
         requestAnimationFrame(() => {
             requestAnimationFrame(() => {
                 barEl.style.width = '100%';
@@ -244,26 +170,25 @@
 
     /* ── Global Progress ──────────────────────────────────────── */
     function setProgress(pct, text) {
-        progressBar.style.width = pct + '%';
-        progressText.textContent = text;
+        $('pocProgressBar').style.width = pct + '%';
+        $('pocProgressText').textContent = text;
     }
 
     function showProgress() {
-        progressSection.hidden = false;
+        $('pocProgressSection').hidden = false;
         setProgress(0, 'Starting…');
     }
 
     function hideProgress() {
-        progressSection.hidden = true;
+        $('pocProgressSection').hidden = true;
     }
 
     /* ── Main Process ─────────────────────────────────────────── */
     async function runProcess() {
-        // Guard: both sides must be loaded
         if (state.coordinatorFiles.length === 0 || !state.masterFile) return;
 
-        resultsSection.hidden = true;
-        warningsPanel.hidden  = true;
+        $('pocResultsSection').hidden = true;
+        $('pocWarningsPanel').hidden  = true;
         showProgress();
 
         try {
@@ -278,7 +203,7 @@
 
                 try {
                     const sheets = await FileHandler.readFile(file, undefined, ID_COLUMN);
-                    const { sheet, sheetIdx, autoSelected } = findSheetWithId(sheets, 0, ID_COLUMN);
+                    const { sheet, autoSelected } = findSheetWithId(sheets, 0, ID_COLUMN);
 
                     if (!sheet || sheet.headers.length === 0) {
                         console.warn(`"${file.name}": no data found on any sheet.`);
@@ -337,6 +262,9 @@
             }
 
             console.log(`Combined: ${coordinatorCombined.rows.size} unique entries`);
+            if (coordinatorCombined.duplicates.length > 0) {
+                console.warn(`Duplicate Job Codes found: ${coordinatorCombined.duplicates.length}`);
+            }
 
             /* ── Step 4: Parse master ─────────────────────────────── */
             setProgress(70, 'Parsing master tracking…');
@@ -354,21 +282,13 @@
 
             console.log(`New: ${results.newEntries.length}  Changed: ${results.changedEntries.length}  Unchanged: ${results.unchangedEntries.length}`);
 
-            /* ── Step 6: Job Code duplicate check ────────────────── */
-            setProgress(95, 'Checking Job Code conflicts…');
-            const jcConflicts = checkJobCodeDuplicates(coordinatorCombined);
-            if (jcConflicts.length > 0) {
-                console.warn(`JC conflicts found: ${jcConflicts.length}`);
-            }
-
             setProgress(100, 'Done!');
 
-            // Persist for download
             state.coordinatorCombined = coordinatorCombined;
             state.masterParsed        = masterParsed;
             state.results             = results;
 
-            showResults(results, coordinatorCombined, jcConflicts);
+            showResults(results, coordinatorCombined);
 
         } catch (err) {
             console.error(err);
@@ -377,148 +297,108 @@
         }
     }
 
-    /* ── Job Code Duplicate Check ─────────────────────────────── */
-
-    /** Find a normalised header key by fuzzy terms (exact first, contains second). */
-    function findNormKey(normHeaders, terms) {
-        const targets = terms.map(t => t.toLowerCase().trim());
-        // Pass 1: exact
-        let found = normHeaders.find(h => targets.includes(h));
-        if (found) return found;
-        // Pass 2: contains
-        found = normHeaders.find(h => targets.some(t => h.includes(t)));
-        return found || null;
-    }
-
-    /**
-     * Returns an array of conflict objects:
-     *   { jc: string, sites: [{ siteId, source }] }
-     * A conflict exists when the same JC value appears with more than one Site ID.
-     */
-    function checkJobCodeDuplicates(coordinatorCombined) {
-        const { normHeaders, rows } = coordinatorCombined;
-
-        const siteIdKey = findNormKey(normHeaders, ['site id', 'site_id', 'siteid', 'site']);
-        const jcKey     = findNormKey(normHeaders, ['job code', 'job_code', 'jobcode', 'jc#', 'jc']);
-
-        if (!siteIdKey || !jcKey) return [];   // columns not found — skip silently
-
-        // jc (lowercase) → { original, sites: Map<siteId, source> }
-        const jcMap = new Map();
-
-        rows.forEach((row) => {
-            const siteId = (row[siteIdKey] || '').trim();
-            const jc     = (row[jcKey]     || '').trim();
-            if (!siteId || !jc) return;
-
-            const key = jc.toLowerCase();
-            if (!jcMap.has(key)) jcMap.set(key, { original: jc, sites: new Map() });
-            const entry = jcMap.get(key);
-            if (!entry.sites.has(siteId)) {
-                entry.sites.set(siteId, row['__source__'] || '');
-            }
-        });
-
-        const conflicts = [];
-        jcMap.forEach(({ original, sites }) => {
-            if (sites.size > 1) {
-                conflicts.push({
-                    jc:    original,
-                    sites: Array.from(sites.entries())
-                               .map(([siteId, source]) => ({ siteId, source }))
-                               .sort((a, b) => a.siteId.localeCompare(b.siteId)),
-                });
-            }
-        });
-
-        return conflicts.sort((a, b) => a.jc.localeCompare(b.jc));
-    }
-
     /* ── Results Display ──────────────────────────────────────── */
-    function showResults(results, coordinatorCombined, jcConflicts = []) {
-        $('newCount').textContent       = results.newEntries.length;
-        $('changedCount').textContent   = results.changedEntries.length;
-        $('unchangedCount').textContent = results.unchangedEntries.length;
-        $('totalCount').textContent     = coordinatorCombined.rows.size;
+    function showResults(results, coordinatorCombined) {
+        $('pocNewCount').textContent       = results.newEntries.length;
+        $('pocChangedCount').textContent   = results.changedEntries.length;
+        $('pocUnchangedCount').textContent = results.unchangedEntries.length;
+        $('pocTotalCount').textContent     = coordinatorCombined.rows.size;
 
-        // ── JC Conflicts panel ──────────────────────────────────
-        const jcPanel = $('jcConflictsPanel');
-        if (jcConflicts.length > 0) {
-            $('jcConflictsTitle').textContent =
-                `🔴 Job Code Conflicts — ${jcConflicts.length} JC${jcConflicts.length > 1 ? 's' : ''} assigned to multiple sites`;
+        // ── Duplicate Job Codes panel ────────────────────────────
+        // Since Job Code is the identifier, any duplicate means the same
+        // Job Code appeared more than once across the coordinator files.
+        const duplicates = coordinatorCombined.duplicates || [];
+        const dupPanel   = $('pocDuplicatesPanel');
 
-            $('jcConflictsList').innerHTML = jcConflicts.map(({ jc, sites }) => {
-                const siteTags = sites.map(({ siteId, source }) => {
-                    const src = source ? ` <span style="color:var(--gray-400);font-size:.74rem;">(${escHtml(source)})</span>` : '';
-                    return `<span class="jc-site-item">${escHtml(siteId)}${src}</span>`;
-                }).join('');
-                return `<li>
-                    <span class="jc-tag">${escHtml(jc)}</span>
-                    <span class="jc-sites">${siteTags}</span>
-                </li>`;
-            }).join('');
+        if (duplicates.length > 0) {
+            $('pocDuplicatesTitle').textContent =
+                `🔴 Duplicate Job Codes — ${duplicates.length} duplicate${duplicates.length > 1 ? 's' : ''} detected (only last entry kept)`;
 
-            jcPanel.hidden = false;
+            $('pocDuplicatesList').innerHTML = duplicates
+                .map(msg => `<li>${escHtml(msg)}</li>`)
+                .join('');
+
+            dupPanel.hidden = false;
         } else {
-            jcPanel.hidden = true;
+            dupPanel.hidden = true;
         }
 
-        // ── Warnings panel ──────────────────────────────────────
-        const allWarnings = [
-            ...(coordinatorCombined.duplicates || []),
-            ...(coordinatorCombined.errors     || []),
-        ];
+        // ── Warnings panel (errors only) ─────────────────────────
+        const errors = coordinatorCombined.errors || [];
 
-        if (allWarnings.length > 0) {
-            warningsList.innerHTML = allWarnings
+        if (errors.length > 0) {
+            $('pocWarningsList').innerHTML = errors
                 .map(w => `<li>${escHtml(w)}</li>`)
                 .join('');
-            warningsPanel.hidden = false;
+            $('pocWarningsPanel').hidden = false;
         } else {
-            warningsPanel.hidden = true;
+            $('pocWarningsPanel').hidden = true;
         }
 
-        resultsSection.hidden = false;
-        resultsSection.scrollIntoView({ behavior: 'smooth', block: 'start' });
+        $('pocResultsSection').hidden = false;
+        $('pocResultsSection').scrollIntoView({ behavior: 'smooth', block: 'start' });
     }
 
     /* ── Initialise ───────────────────────────────────────────── */
-    initTabs();
-    SiteIdJc.init();
-    PocTracking.init();
+    function init() {
+        const coordinatorDropZone = $('pocCoordinatorDropZone');
+        const coordinatorInput    = $('pocCoordinatorInput');
+        const masterDropZone      = $('pocMasterDropZone');
+        const masterInput         = $('pocMasterInput');
 
-    /* ── Download ─────────────────────────────────────────────── */
-    downloadBtn.addEventListener('click', () => {
-        if (!state.results || !state.coordinatorCombined || !state.masterParsed) return;
-
-        try {
-            const wb = ExcelExport.generate(
-                state.coordinatorCombined,
-                state.masterParsed,
-                state.results,
-                {
-                    idColumnName:         ID_COLUMN,
-                    coordinatorFileCount: state.coordinatorFiles.length,
-                    duplicates:           state.coordinatorCombined.duplicates,
-                    errors:               state.coordinatorCombined.errors,
-                    includeUnchanged:     INCLUDE_UNCHANGED,
-                    caseSensitive:        CASE_SENSITIVE,
+        FileHandler.setupDropZone(coordinatorDropZone, coordinatorInput, (files) => {
+            files.forEach(f => {
+                if (!state.coordinatorFiles.find(e => e.name === f.name && e.size === f.size)) {
+                    state.coordinatorFiles.push(f);
                 }
-            );
+            });
+            renderCoordinatorFiles();
+            flashCardBar($('pocCoordinatorProgress'), $('pocCoordinatorBar'));
+            scheduleAutoProcess();
+        }, true);
 
-            const now      = new Date();
-            const datePart = [
-                now.getFullYear(),
-                String(now.getMonth() + 1).padStart(2, '0'),
-                String(now.getDate()).padStart(2, '0'),
-            ].join('');
+        FileHandler.setupDropZone(masterDropZone, masterInput, (files) => {
+            state.masterFile = files[0];
+            renderMasterFile();
+            flashCardBar($('pocMasterProgress'), $('pocMasterBar'));
+            scheduleAutoProcess();
+        }, false);
 
-            ExcelExport.download(wb, `Task_Tracking_Report_${datePart}.xlsx`);
+        /* ── Download ───────────────────────────────────────────── */
+        $('pocDownloadBtn').addEventListener('click', () => {
+            if (!state.results || !state.coordinatorCombined || !state.masterParsed) return;
 
-        } catch (err) {
-            console.error(err);
-            alert(`Download failed:\n\n${err.message}`);
-        }
-    });
+            try {
+                const wb = ExcelExport.generate(
+                    state.coordinatorCombined,
+                    state.masterParsed,
+                    state.results,
+                    {
+                        idColumnName:         ID_COLUMN,
+                        coordinatorFileCount: state.coordinatorFiles.length,
+                        duplicates:           state.coordinatorCombined.duplicates,
+                        errors:               state.coordinatorCombined.errors,
+                        includeUnchanged:     INCLUDE_UNCHANGED,
+                        caseSensitive:        CASE_SENSITIVE,
+                    }
+                );
+
+                const now      = new Date();
+                const datePart = [
+                    now.getFullYear(),
+                    String(now.getMonth() + 1).padStart(2, '0'),
+                    String(now.getDate()).padStart(2, '0'),
+                ].join('');
+
+                ExcelExport.download(wb, `POC_Tracking_Report_${datePart}.xlsx`);
+
+            } catch (err) {
+                console.error(err);
+                alert(`Download failed:\n\n${err.message}`);
+            }
+        });
+    }
+
+    return { init };
 
 })();

@@ -14,39 +14,55 @@
     <link rel="apple-touch-icon" href="icons/icon.svg">
 
     <link rel="stylesheet" href="css/styles.css">
-    <script src="https://cdnjs.cloudflare.com/ajax/libs/xlsx/0.18.5/xlsx.full.min.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/xlsx-js-style@1.2.0/dist/xlsx.bundle.js"></script>
 </head>
 <body>
 
-    <header>
-        <div class="header-content">
-            <div class="header-icon">📋</div>
-            <div class="header-text">
-                <h1>Task Tracking System</h1>
-                <p>Telecom Department — Coordinator Sheet Comparator</p>
+    <!-- ── Sidebar ──────────────────────────────────────────────── -->
+    <aside class="sidebar">
+
+        <div class="sidebar-brand">
+            <img src="LMP Big Logo.jpg" alt="Landmark Plus" class="sidebar-logo">
+            <div class="sidebar-brand-text">
+                <span class="sidebar-title">Task Tracking System</span>
+                <span class="sidebar-subtitle">Landmark Plus — Telecom Dept.</span>
             </div>
         </div>
-    </header>
 
-    <main>
-
-        <!-- ── Tab Bar ──────────────────────────────────────────── -->
-        <div class="tab-bar" role="tablist">
+        <nav class="sidebar-nav" role="tablist">
             <button class="tab-btn tab-btn--active"
                     id="tabBtnTracking"
                     role="tab"
                     aria-selected="true"
                     aria-controls="panelTracking">
-                📋 Tracking Update
+                <span class="nav-icon">📡</span> RF-TX Tracking Update
+            </button>
+            <button class="tab-btn"
+                    id="tabBtnPocTracking"
+                    role="tab"
+                    aria-selected="false"
+                    aria-controls="panelPocTracking">
+                <span class="nav-icon">🗄️</span> POC Tracking Update
             </button>
             <button class="tab-btn"
                     id="tabBtnSiteId"
                     role="tab"
                     aria-selected="false"
                     aria-controls="panelSiteId">
-                🔗 Site ID-JC File
+                <span class="nav-icon">📍</span> Site ID-JC File
             </button>
-        </div>
+        </nav>
+
+    </aside>
+
+    <!-- ── Right Panel ───────────────────────────────────────────── -->
+    <div class="page-right">
+
+        <header class="topbar">
+            <span class="topbar-title" id="topbarTitle">RF-TX Tracking Update</span>
+        </header>
+
+        <main>
 
         <!-- ══════════════════════════════════════════════════════ -->
         <!-- Tab Panel: Tracking Update                            -->
@@ -57,12 +73,12 @@
             <section class="upload-section">
                 <div class="upload-grid">
 
-                    <!-- Coordinator Sheets -->
+                    <!-- RF-TX Coordinator Sheets -->
                     <div class="upload-card" id="coordinatorCard">
                         <div class="card-header">
                             <span class="card-icon">📁</span>
                             <div>
-                                <h2>Coordinator Sheets</h2>
+                                <h2>RF-TX Coordinator Sheets</h2>
                                 <p>Drop multiple files or browse</p>
                             </div>
                         </div>
@@ -82,12 +98,12 @@
                         </div>
                     </div>
 
-                    <!-- Master Tracking -->
+                    <!-- RF-TX Master Tracking -->
                     <div class="upload-card" id="masterCard">
                         <div class="card-header">
                             <span class="card-icon">📊</span>
                             <div>
-                                <h2>Master Tracking</h2>
+                                <h2>RF-TX Master Tracking</h2>
                                 <p>Drop the master file or browse</p>
                             </div>
                         </div>
@@ -171,25 +187,25 @@
 
                     <div class="upload-card" id="siteIdCard">
                         <div class="card-header">
-                            <span class="card-icon">📊</span>
+                            <span class="card-icon">📁</span>
                             <div>
-                                <h2>Master Sheet</h2>
-                                <p>Drop the master file or browse — reads "Invoicing Track" sheet</p>
+                                <h2>Tracking Files</h2>
+                                <p>Drop multiple files or browse — reads "Invoicing Track" &amp; "POC3 Tracking" sheets</p>
                             </div>
                         </div>
                         <div class="drop-zone" id="siteIdDropZone">
                             <div class="drop-zone-inner">
                                 <div class="drop-icon">⬆</div>
-                                <p class="drop-text">Drag &amp; drop file here</p>
+                                <p class="drop-text">Drag &amp; drop files here</p>
                                 <label class="btn btn-outline" for="siteIdInput">Browse</label>
-                                <input type="file" id="siteIdInput" hidden>
+                                <input type="file" id="siteIdInput" multiple hidden>
                             </div>
                         </div>
                         <div class="card-upload-progress" id="siteIdProgress" hidden>
                             <div class="card-upload-bar" id="siteIdBar"></div>
                         </div>
                         <div class="file-list" id="siteIdFileList">
-                            <p class="no-files">No file uploaded yet</p>
+                            <p class="no-files">No files uploaded yet</p>
                         </div>
                     </div>
 
@@ -224,16 +240,131 @@
 
         </div><!-- /panelSiteId -->
 
-    </main>
+        <!-- ══════════════════════════════════════════════════════ -->
+        <!-- Tab Panel: POC Tracking Update                        -->
+        <!-- ══════════════════════════════════════════════════════ -->
+        <div class="tab-panel" id="panelPocTracking" role="tabpanel" hidden>
 
-    <footer>
-        <p>Task Tracking System &copy; Telecom Department</p>
-    </footer>
+            <!-- ── Upload Cards ─────────────────────────────────── -->
+            <section class="upload-section">
+                <div class="upload-grid">
+
+                    <!-- POC Coordinator Sheets -->
+                    <div class="upload-card" id="pocCoordinatorCard">
+                        <div class="card-header">
+                            <span class="card-icon">📁</span>
+                            <div>
+                                <h2>POC Coordinator Sheets</h2>
+                                <p>Drop multiple files or browse</p>
+                            </div>
+                        </div>
+                        <div class="drop-zone" id="pocCoordinatorDropZone">
+                            <div class="drop-zone-inner">
+                                <div class="drop-icon">⬆</div>
+                                <p class="drop-text">Drag &amp; drop files here</p>
+                                <label class="btn btn-outline" for="pocCoordinatorInput">Browse</label>
+                                <input type="file" id="pocCoordinatorInput" multiple hidden>
+                            </div>
+                        </div>
+                        <div class="card-upload-progress" id="pocCoordinatorProgress" hidden>
+                            <div class="card-upload-bar" id="pocCoordinatorBar"></div>
+                        </div>
+                        <div class="file-list" id="pocCoordinatorFileList">
+                            <p class="no-files">No files uploaded yet</p>
+                        </div>
+                    </div>
+
+                    <!-- POC Master Tracking -->
+                    <div class="upload-card" id="pocMasterCard">
+                        <div class="card-header">
+                            <span class="card-icon">📊</span>
+                            <div>
+                                <h2>POC Master Tracking</h2>
+                                <p>Drop the master file or browse</p>
+                            </div>
+                        </div>
+                        <div class="drop-zone" id="pocMasterDropZone">
+                            <div class="drop-zone-inner">
+                                <div class="drop-icon">⬆</div>
+                                <p class="drop-text">Drag &amp; drop file here</p>
+                                <label class="btn btn-outline" for="pocMasterInput">Browse</label>
+                                <input type="file" id="pocMasterInput" hidden>
+                            </div>
+                        </div>
+                        <div class="card-upload-progress" id="pocMasterProgress" hidden>
+                            <div class="card-upload-bar" id="pocMasterBar"></div>
+                        </div>
+                        <div class="file-list" id="pocMasterFileList">
+                            <p class="no-files">No file uploaded yet</p>
+                        </div>
+                    </div>
+
+                </div>
+            </section>
+
+            <!-- ── Comparison Progress ───────────────────────────── -->
+            <div class="progress-section" id="pocProgressSection" hidden>
+                <div class="progress-bar-container">
+                    <div class="progress-bar" id="pocProgressBar"></div>
+                </div>
+                <p class="progress-text" id="pocProgressText">Processing…</p>
+            </div>
+
+            <!-- ── Results ──────────────────────────────────────── -->
+            <section class="results-section" id="pocResultsSection" hidden>
+                <h2>Results</h2>
+
+                <div class="results-grid">
+                    <div class="result-card result-new">
+                        <div class="result-number" id="pocNewCount">0</div>
+                        <div class="result-label">New Entries</div>
+                    </div>
+                    <div class="result-card result-changed">
+                        <div class="result-number" id="pocChangedCount">0</div>
+                        <div class="result-label">Changed Entries</div>
+                    </div>
+                    <div class="result-card result-unchanged">
+                        <div class="result-number" id="pocUnchangedCount">0</div>
+                        <div class="result-label">Unchanged</div>
+                    </div>
+                    <div class="result-card result-total">
+                        <div class="result-number" id="pocTotalCount">0</div>
+                        <div class="result-label">Total Entries</div>
+                    </div>
+                </div>
+
+                <div class="jc-conflicts-panel" id="pocDuplicatesPanel" hidden>
+                    <h3 id="pocDuplicatesTitle"></h3>
+                    <ul id="pocDuplicatesList"></ul>
+                </div>
+
+                <div class="warnings-panel" id="pocWarningsPanel" hidden>
+                    <h3>⚠ Warnings</h3>
+                    <ul id="pocWarningsList"></ul>
+                </div>
+
+                <div class="download-bar">
+                    <button class="btn btn-success btn-large" id="pocDownloadBtn">
+                        <span>⬇</span> Download Results Excel
+                    </button>
+                </div>
+            </section>
+
+        </div><!-- /panelPocTracking -->
+
+        </main>
+
+        <footer>
+            <p>Task Tracking System &copy; Landmark Plus — Telecom Department</p>
+        </footer>
+
+    </div><!-- /page-right -->
 
     <script src="js/fileHandler.js"></script>
     <script src="js/comparison.js"></script>
     <script src="js/excelExport.js"></script>
     <script src="js/siteIdJc.js"></script>
+    <script src="js/pocTracking.js"></script>
     <script src="js/app.js"></script>
     <script>
         if ('serviceWorker' in navigator) {

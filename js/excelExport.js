@@ -49,6 +49,48 @@ const ExcelExport = (() => {
         return ws;
     }
 
+    /* ── Cell styles ──────────────────────────────────────────── */
+
+    const HEADER_STYLE = {
+        fill: { fgColor: { rgb: '0070C0' } },
+        font: { color: { rgb: 'FFFFFF' }, bold: true },
+        border: {
+            top:    { style: 'thin', color: { rgb: '000000' } },
+            bottom: { style: 'thin', color: { rgb: '000000' } },
+            left:   { style: 'thin', color: { rgb: '000000' } },
+            right:  { style: 'thin', color: { rgb: '000000' } },
+        },
+    };
+
+    const DATA_STYLE = {
+        border: {
+            top:    { style: 'thin', color: { rgb: '000000' } },
+            bottom: { style: 'thin', color: { rgb: '000000' } },
+            left:   { style: 'thin', color: { rgb: '000000' } },
+            right:  { style: 'thin', color: { rgb: '000000' } },
+        },
+    };
+
+    /**
+     * Apply header + data border styles to a worksheet in-place.
+     * @param {Object} ws        SheetJS worksheet
+     * @param {number} colCount  Number of columns
+     * @param {number} rowCount  Number of data rows (excluding header)
+     */
+    function applyStyles(ws, colCount, rowCount) {
+        for (let c = 0; c < colCount; c++) {
+            const ref = XLSX.utils.encode_cell({ r: 0, c });
+            if (ws[ref]) ws[ref].s = HEADER_STYLE;
+        }
+        for (let r = 1; r <= rowCount; r++) {
+            for (let c = 0; c < colCount; c++) {
+                const ref = XLSX.utils.encode_cell({ r, c });
+                if (ws[ref]) ws[ref].s = DATA_STYLE;
+            }
+        }
+        return ws;
+    }
+
     /**
      * Filter out internal "__source__" header/column from display.
      */
@@ -113,7 +155,10 @@ const ExcelExport = (() => {
             return cells;
         });
 
-        return autoWidth(buildSheet(headers, dataRows), headers, dataRows);
+        const ws = autoWidth(buildSheet(headers, dataRows), headers, dataRows);
+        applyStyles(ws, headers.length, dataRows.length);
+        ws['!freeze'] = { xSplit: 0, ySplit: 1 };
+        return ws;
     }
 
     function buildChangedEntriesSheet(coordinatorData, changedEntries) {
@@ -154,7 +199,10 @@ const ExcelExport = (() => {
             return cells;
         });
 
-        return autoWidth(buildSheet(headers, dataRows), headers, dataRows);
+        const ws = autoWidth(buildSheet(headers, dataRows), headers, dataRows);
+        applyStyles(ws, headers.length, dataRows.length);
+        ws['!freeze'] = { xSplit: 0, ySplit: 1 };
+        return ws;
     }
 
     function buildUnchangedSheet(coordinatorData, unchangedEntries) {
@@ -169,7 +217,9 @@ const ExcelExport = (() => {
             cols.map(({ normH }) => entry.row[normH] || '')
         );
 
-        return autoWidth(buildSheet(headers, dataRows), headers, dataRows);
+        const ws = autoWidth(buildSheet(headers, dataRows), headers, dataRows);
+        applyStyles(ws, headers.length, dataRows.length);
+        return ws;
     }
 
     /* ── Main generate function ───────────────────────────────── */
@@ -193,36 +243,14 @@ const ExcelExport = (() => {
         const wb = XLSX.utils.book_new();
 
         XLSX.utils.book_append_sheet(wb,
-            buildSummarySheet(coordinatorData, masterData, results, options),
-            'Summary'
-        );
-
-        XLSX.utils.book_append_sheet(wb,
             buildNewEntriesSheet(coordinatorData, results.newEntries),
             'New Entries'
         );
 
         XLSX.utils.book_append_sheet(wb,
-            buildChangedEntriesSheet(coordinatorData, results.changedEntries),
-            'Changed Entries'
-        );
-
-        XLSX.utils.book_append_sheet(wb,
-            buildChangeDetailsSheet(results.changeDetails),
-            'Change Details'
-        );
-
-        XLSX.utils.book_append_sheet(wb,
             buildCombinedSheet(coordinatorData),
-            'Combined Coordinators'
+            'Collective Tasks'
         );
-
-        if (options.includeUnchanged) {
-            XLSX.utils.book_append_sheet(wb,
-                buildUnchangedSheet(coordinatorData, results.unchangedEntries),
-                'Unchanged'
-            );
-        }
 
         return wb;
     }

@@ -3,12 +3,24 @@
  * ──────────────────────────────────────────────────────────────
  * Self-contained module for the "Site ID-JC File" tab.
  *
- * Reads the "Invoicing Track" sheet from an uploaded master file,
- * builds a 4-column output:
+ * Accepts multiple tracking files (PC Tracking and/or POC Tracking).
+ * For each file it locates the relevant sheet tab and extracts rows,
+ * then combines everything into a single 4-column output:
+ *
  *   A  Site ID-JC   – Site ID + "-" + Job Code  (e.g. "D1234-MK001")
- *   B  Task Date    – as-is from the sheet
+ *   B  Task Date    – date value from the sheet
  *   C  Old/New      – date < 2026-01-01 → "Old", else → "New"
- *   D  Contractor   – as-is from the sheet
+ *   D  Contractor   – contractor / installation team
+ *
+ * Supported sheet names (searched in order):
+ *   "Invoicing Track"  – PC Tracking files
+ *   "POC3 Tracking"    – POC Tracking files
+ *
+ * Column name variants handled automatically:
+ *   Site ID      : "Physical Site ID" (PC) | "Site ID" (POC)
+ *   Job Code     : "Job Code" (both)
+ *   Task Date    : "Task Date" (PC) | "Installation Date" (POC)
+ *   Contractor   : "Contractor" (PC) | "Installation Team" (POC)
  *
  * Dependencies: FileHandler (fileHandler.js), XLSX (SheetJS CDN)
  */
@@ -17,24 +29,30 @@ const SiteIdJc = (() => {
     'use strict';
 
     /* ── Configuration ────────────────────────────────────────── */
-    const MASTER_SHEET = 'Invoicing Track';
-    const OLD_CUTOFF   = '2026-01-01';   // ISO string — safe to compare as string
+    // Sheet names to search for, in priority order.
+    const SHEET_NAMES = ['Invoicing Track', 'POC3 Tracking'];
+    const OLD_CUTOFF  = '2026-01-01';
 
     /* ── Column detection rules ───────────────────────────────── */
-    // Listed from most-specific to least-specific so the first match wins.
+    // Listed most-specific first so exact match on the longer term wins.
     const COL_RULES = [
-        { key: 'siteId',     terms: ['site id', 'site_id', 'siteid'] },
+        // PC: "Physical Site ID"  |  POC: "Site ID"
+        { key: 'siteId',     terms: ['physical site id', 'physical site_id', 'site id', 'site_id', 'siteid'] },
+        // Both: "Job Code"
         { key: 'jobCode',    terms: ['job code', 'job_code', 'jobcode', 'jc#', 'jc'] },
-        { key: 'taskDate',   terms: ['task date', 'task_date'] },
-        { key: 'contractor', terms: ['contractor', 'sub-contractor', 'subcontractor'] },
+        // PC: "Task Date"  |  POC: "Installation Date"
+        { key: 'taskDate',   terms: ['installation date', 'task date', 'task_date', 'install date'] },
+        // PC: "Contractor"  |  POC: "Installation Team"
+        { key: 'contractor', terms: ['installation team', 'contractor', 'sub-contractor', 'subcontractor'] },
     ];
 
     /* ── Module-private state ─────────────────────────────────── */
+    let _files    = [];     // File[] — currently loaded files
     let _workbook = null;   // held for the download button
 
     /* ── Helpers ──────────────────────────────────────────────── */
-    const $        = id => document.getElementById(id);
-    const escHtml  = s  => String(s)
+    const $       = id => document.getElementById(id);
+    const escHtml = s  => String(s)
         .replace(/&/g, '&amp;').replace(/</g, '&lt;')
         .replace(/>/g, '&gt;').replace(/"/g, '&quot;');
 
@@ -44,7 +62,7 @@ const SiteIdJc = (() => {
         const lower  = headers.map(h => (h || '').toString().toLowerCase().trim());
 
         for (const { key, terms } of COL_RULES) {
-            // Pass 1: exact match (any term equals the full header)
+            // Pass 1: exact match (header equals one of the terms exactly)
             let idx = lower.findIndex(h => terms.includes(h));
             // Pass 2: contains match
             if (idx === -1) {
@@ -55,29 +73,34 @@ const SiteIdJc = (() => {
         return result;   // { siteId: N, jobCode: N, taskDate: N, contractor: N }
     }
 
+    /* ── Sheet finder ─────────────────────────────────────────── */
+    /**
+     * Search the parsed sheets array for the first recognised sheet name.
+     * Returns { sheet, sheetType } or { sheet: null, sheetType: null }.
+     */
+    function findTargetSheet(sheets) {
+        for (const name of SHEET_NAMES) {
+            const target = name.toLowerCase().trim();
+            const found  =
+                sheets.find(s => s.name.toLowerCase().trim() === target) ||
+                sheets.find(s => s.name.toLowerCase().includes(target));
+            if (found) return { sheet: found, sheetType: name };
+        }
+        return { sheet: null, sheetType: null };
+    }
+
     /* ── Date parser ──────────────────────────────────────────── */
     const MONTH_MAP = {
         jan:0, feb:1, mar:2, apr:3, may:4, jun:5,
         jul:6, aug:7, sep:8, oct:9, nov:10, dec:11
     };
 
-    /**
-     * Parse a date string in any of these common formats into a Date:
-     *   yyyy-mm-dd   (ISO — SheetJS default)
-     *   dd-Mon-yy    e.g. 29-Apr-25
-     *   dd-Mon-yyyy  e.g. 29-Apr-2025
-     *   dd/mm/yyyy
-     *   mm/dd/yyyy
-     * Returns null if unparseable.
-     */
     function parseDate(dateStr) {
         const s = (dateStr || '').toString().trim();
         if (!s) return null;
 
         // ISO: yyyy-mm-dd
-        if (/^\d{4}-\d{2}-\d{2}$/.test(s)) {
-            return new Date(s);
-        }
+        if (/^\d{4}-\d{2}-\d{2}$/.test(s)) return new Date(s);
 
         // dd-Mon-yy or dd-Mon-yyyy  (e.g. 29-Apr-25 / 29-Apr-2025)
         const dmy = s.match(/^(\d{1,2})-([A-Za-z]{3})-(\d{2,4})$/);
@@ -85,29 +108,27 @@ const SiteIdJc = (() => {
             const day   = parseInt(dmy[1], 10);
             const month = MONTH_MAP[dmy[2].toLowerCase()];
             let   year  = parseInt(dmy[3], 10);
-            if (year < 100) year += 2000;   // 25 → 2025
+            if (year < 100) year += 2000;
             if (month === undefined) return null;
             return new Date(year, month, day);
         }
 
-        // dd/mm/yyyy or mm/dd/yyyy — try both; pick whichever is a valid date
+        // dd/mm/yyyy or mm/dd/yyyy
         const slash = s.match(/^(\d{1,2})\/(\d{1,2})\/(\d{4})$/);
         if (slash) {
             const a = parseInt(slash[1], 10);
             const b = parseInt(slash[2], 10);
             const y = parseInt(slash[3], 10);
-            // If first part > 12 it must be dd/mm/yyyy
             if (a > 12) return new Date(y, b - 1, a);
-            return new Date(y, a - 1, b);   // assume mm/dd/yyyy
+            return new Date(y, a - 1, b);
         }
 
-        // Last resort: let the JS engine try
         const d = new Date(s);
         return isNaN(d.getTime()) ? null : d;
     }
 
     /* ── Date classifier ──────────────────────────────────────── */
-    const CUTOFF = new Date(OLD_CUTOFF);   // 2026-01-01
+    const CUTOFF = new Date(OLD_CUTOFF);
 
     function classifyDate(dateStr) {
         const d = parseDate(dateStr);
@@ -115,22 +136,32 @@ const SiteIdJc = (() => {
         return d < CUTOFF ? 'Old' : 'New';
     }
 
-    /* ── Sheet finder ─────────────────────────────────────────── */
-    function findInvoicingSheet(sheets) {
-        const target = MASTER_SHEET.toLowerCase().trim();
-        return (
-            sheets.find(s => s.name.toLowerCase().trim() === target) ||
-            sheets.find(s => s.name.toLowerCase().includes(target))  ||
-            null
-        );
-    }
+    /* ── Cell styles ──────────────────────────────────────────── */
+    const HEADER_STYLE = {
+        fill: { fgColor: { rgb: '0070C0' } },
+        font: { color: { rgb: 'FFFFFF' }, bold: true },
+        border: {
+            top:    { style: 'thin', color: { rgb: '000000' } },
+            bottom: { style: 'thin', color: { rgb: '000000' } },
+            left:   { style: 'thin', color: { rgb: '000000' } },
+            right:  { style: 'thin', color: { rgb: '000000' } },
+        },
+    };
+
+    const DATA_STYLE = {
+        border: {
+            top:    { style: 'thin', color: { rgb: '000000' } },
+            bottom: { style: 'thin', color: { rgb: '000000' } },
+            left:   { style: 'thin', color: { rgb: '000000' } },
+            right:  { style: 'thin', color: { rgb: '000000' } },
+        },
+    };
 
     /* ── Excel workbook builder ───────────────────────────────── */
     function buildWorkbook(dataRows) {
         const headers = ['Site ID-JC', 'Task Date', 'Old/New', 'Contractor'];
         const ws      = XLSX.utils.aoa_to_sheet([headers, ...dataRows]);
 
-        // Auto-fit column widths
         const widths = headers.map(h => h.length);
         dataRows.forEach(row => {
             row.forEach((cell, i) => {
@@ -140,6 +171,20 @@ const SiteIdJc = (() => {
             });
         });
         ws['!cols'] = widths.map(w => ({ wch: w + 2 }));
+
+        // Apply header colour and border styles
+        for (let c = 0; c < headers.length; c++) {
+            const ref = XLSX.utils.encode_cell({ r: 0, c });
+            if (ws[ref]) ws[ref].s = HEADER_STYLE;
+        }
+        for (let r = 1; r <= dataRows.length; r++) {
+            for (let c = 0; c < headers.length; c++) {
+                const ref = XLSX.utils.encode_cell({ r, c });
+                if (ws[ref]) ws[ref].s = DATA_STYLE;
+            }
+        }
+
+        ws['!freeze'] = { xSplit: 0, ySplit: 1 };
 
         const wb = XLSX.utils.book_new();
         XLSX.utils.book_append_sheet(wb, ws, 'Site ID-JC');
@@ -151,15 +196,14 @@ const SiteIdJc = (() => {
         $('siteIdProgressBar').style.width  = pct + '%';
         $('siteIdProgressText').textContent = text;
     }
-
     function showProgress() { $('siteIdProgressSection').hidden = false; setProgress(0, 'Starting…'); }
     function hideProgress() { $('siteIdProgressSection').hidden = true; }
 
     function flashCardBar() {
         const prog = $('siteIdProgress');
         const bar  = $('siteIdBar');
-        prog.hidden      = false;
-        bar.style.width  = '0%';
+        prog.hidden     = false;
+        bar.style.width = '0%';
         requestAnimationFrame(() => requestAnimationFrame(() => {
             bar.style.width = '100%';
         }));
@@ -167,96 +211,131 @@ const SiteIdJc = (() => {
     }
 
     /* ── File list renderer ───────────────────────────────────── */
-    function renderFile(file) {
+    function renderFiles() {
         const fileList = $('siteIdFileList');
         const dropZone = $('siteIdDropZone');
 
-        if (!file) {
-            fileList.innerHTML = '<p class="no-files">No file uploaded yet</p>';
+        if (_files.length === 0) {
+            fileList.innerHTML = '<p class="no-files">No files uploaded yet</p>';
             dropZone.classList.remove('has-files');
             return;
         }
 
         dropZone.classList.add('has-files');
-        fileList.innerHTML = `
+        fileList.innerHTML = _files.map((f, i) => `
             <div class="file-item">
                 <div class="file-item-name">
-                    <span>📊</span>
-                    <span class="fname" title="${escHtml(file.name)}">${escHtml(file.name)}</span>
+                    <span>📄</span>
+                    <span class="fname" title="${escHtml(f.name)}">${escHtml(f.name)}</span>
                     <span class="file-status">✓</span>
                 </div>
-                <button class="file-remove" id="siteIdRemoveBtn" title="Remove this file">✕</button>
+                <button class="file-remove" data-index="${i}" title="Remove this file">✕</button>
             </div>
-        `;
+        `).join('');
 
-        $('siteIdRemoveBtn').addEventListener('click', () => {
-            renderFile(null);
-            $('siteIdResultsSection').hidden = true;
-            hideProgress();
-            _workbook = null;
+        fileList.querySelectorAll('.file-remove').forEach(btn => {
+            btn.addEventListener('click', (e) => {
+                const idx = parseInt(e.currentTarget.dataset.index, 10);
+                _files.splice(idx, 1);
+                renderFiles();
+                if (_files.length === 0) {
+                    $('siteIdResultsSection').hidden = true;
+                    hideProgress();
+                    _workbook = null;
+                } else {
+                    processAll();
+                }
+            });
         });
     }
 
     /* ── Main processing function ─────────────────────────────── */
-    async function process(file) {
+    async function processAll() {
+        if (_files.length === 0) return;
+
         $('siteIdResultsSection').hidden = true;
         _workbook = null;
         showProgress();
 
+        const allRows    = [];
+        const skipped    = [];
+
         try {
-            setProgress(20, 'Reading file…');
-            const sheets = await FileHandler.readFile(file, undefined, 'ID#');
+            for (let i = 0; i < _files.length; i++) {
+                const file = _files[i];
+                const pct  = Math.round(10 + 80 * i / _files.length);
+                setProgress(pct, `Reading ${file.name}… (${i + 1} / ${_files.length})`);
 
-            setProgress(45, 'Locating "Invoicing Track" sheet…');
-            const sheet = findInvoicingSheet(sheets);
+                try {
+                    // Use "job code" as the hint — present in both file types
+                    const sheets = await FileHandler.readFile(file, undefined, 'job code');
+                    const { sheet, sheetType } = findTargetSheet(sheets);
 
-            if (!sheet) {
-                throw new Error(
-                    `Sheet "${MASTER_SHEET}" not found in this file.\n` +
-                    `Available sheets: ${sheets.map(s => `"${s.name}"`).join(', ')}`
-                );
+                    if (!sheet) {
+                        const names = sheets.map(s => `"${s.name}"`).join(', ');
+                        skipped.push(`"${file.name}" — no recognised sheet found (available: ${names})`);
+                        continue;
+                    }
+
+                    if (!sheet.headers || sheet.headers.length === 0) {
+                        skipped.push(`"${file.name}" — sheet "${sheetType}" is empty`);
+                        continue;
+                    }
+
+                    const cols = detectColumns(sheet.headers);
+
+                    // Validate required columns
+                    const missing = Object.entries(cols)
+                        .filter(([, idx]) => idx === -1)
+                        .map(([key]) => key);
+
+                    if (missing.length > 0) {
+                        skipped.push(
+                            `"${file.name}" (${sheetType}) — could not find columns: ${missing.join(', ')}. ` +
+                            `Headers: ${sheet.headers.filter(Boolean).join(' | ')}`
+                        );
+                        continue;
+                    }
+
+                    const rows = sheet.rows
+                        .map(row => {
+                            const siteId     = String(row[cols.siteId]     || '').trim();
+                            const jobCode    = String(row[cols.jobCode]    || '').trim();
+                            const taskDate   = String(row[cols.taskDate]   || '').trim();
+                            const contractor = String(row[cols.contractor] || '').trim();
+
+                            const siteIdJc = (siteId && jobCode)
+                                ? `${siteId}-${jobCode}`
+                                : (siteId || jobCode);
+
+                            return [siteIdJc, taskDate, classifyDate(taskDate), contractor];
+                        })
+                        .filter(row => row[0] || row[1]);
+
+                    allRows.push(...rows);
+                    console.log(`✓ "${file.name}" [${sheetType}] — ${rows.length} rows`);
+
+                } catch (err) {
+                    skipped.push(`"${file.name}" — ${err.message}`);
+                }
             }
-            if (!sheet.headers || sheet.headers.length === 0) {
-                throw new Error(`Sheet "${MASTER_SHEET}" appears to be empty.`);
+
+            if (allRows.length === 0 && skipped.length > 0) {
+                throw new Error('No data could be extracted from any file:\n\n' + skipped.join('\n'));
             }
 
-            setProgress(60, 'Detecting columns…');
-            const cols = detectColumns(sheet.headers);
-
-            const missing = Object.entries(cols)
-                .filter(([, idx]) => idx === -1)
-                .map(([key]) => key);
-
-            if (missing.length > 0) {
-                throw new Error(
-                    `Could not locate required columns: ${missing.join(', ')}.\n` +
-                    `Headers detected: ${sheet.headers.filter(Boolean).join(' | ')}`
-                );
-            }
-
-            setProgress(75, 'Building output rows…');
-            const outputRows = sheet.rows
-                .map(row => {
-                    const siteId     = String(row[cols.siteId]     || '').trim();
-                    const jobCode    = String(row[cols.jobCode]    || '').trim();
-                    const taskDate   = String(row[cols.taskDate]   || '').trim();
-                    const contractor = String(row[cols.contractor] || '').trim();
-
-                    const siteIdJc = (siteId && jobCode)
-                        ? `${siteId}-${jobCode}`
-                        : (siteId || jobCode);
-
-                    return [siteIdJc, taskDate, classifyDate(taskDate), contractor];
-                })
-                .filter(row => row[0] || row[1]);   // drop fully blank rows
-
-            setProgress(92, 'Generating Excel workbook…');
-            _workbook = buildWorkbook(outputRows);
+            setProgress(95, 'Generating Excel workbook…');
+            _workbook = buildWorkbook(allRows);
 
             setProgress(100, 'Done!');
-            $('siteIdRowCount').textContent   = outputRows.length;
-            $('siteIdResultsSection').hidden  = false;
+            $('siteIdRowCount').textContent  = allRows.length;
+            $('siteIdResultsSection').hidden = false;
             $('siteIdResultsSection').scrollIntoView({ behavior: 'smooth', block: 'start' });
+
+            if (skipped.length > 0) {
+                console.warn('Skipped files:\n' + skipped.join('\n'));
+                alert(`⚠ ${skipped.length} file(s) could not be processed:\n\n${skipped.join('\n')}`);
+            }
 
         } catch (err) {
             console.error(err);
@@ -267,20 +346,22 @@ const SiteIdJc = (() => {
 
     /* ── Public init — called once by app.js ──────────────────── */
     function init() {
-        // Wire drop zone
         FileHandler.setupDropZone(
             $('siteIdDropZone'),
             $('siteIdInput'),
             (files) => {
-                const file = files[0];
-                renderFile(file);
+                files.forEach(f => {
+                    if (!_files.find(e => e.name === f.name && e.size === f.size)) {
+                        _files.push(f);
+                    }
+                });
+                renderFiles();
                 flashCardBar();
-                process(file);
+                processAll();
             },
-            false   // single file only
+            true   // multiple files
         );
 
-        // Download button
         $('siteIdDownloadBtn').addEventListener('click', () => {
             if (!_workbook) return;
             const now      = new Date();
