@@ -482,6 +482,27 @@
         resultsSection.scrollIntoView({ behavior: 'smooth', block: 'start' });
     }
 
+    /* ── Reset ────────────────────────────────────────────────── */
+    function resetTracking() {
+        state.coordinatorFiles    = [];
+        state.masterFile          = null;
+        state.coordinatorCombined = null;
+        state.masterParsed        = null;
+        state.results             = null;
+
+        renderCoordinatorFiles();
+        renderMasterFile();
+        coordinatorInput.value = '';
+        masterInput.value      = '';
+
+        resultsSection.hidden            = true;
+        progressSection.hidden           = true;
+        warningsPanel.hidden             = true;
+        $('jcConflictsPanel').hidden     = true;
+    }
+
+    $('resetTrackingBtn').addEventListener('click', resetTracking);
+
     /* ── Initialise ───────────────────────────────────────────── */
     initTabs();
     SiteIdJc.init();

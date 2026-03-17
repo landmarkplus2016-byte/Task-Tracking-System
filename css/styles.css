@@ -533,7 +533,10 @@ main {
 
 /* ── Download Bar ──────────────────────────────────────────── */
 .download-bar {
-    text-align: center;
+    display: flex;
+    justify-content: center;
+    gap: 12px;
+    flex-wrap: wrap;
     padding-top: 20px;
     border-top: 1px solid var(--gray-200);
 }
