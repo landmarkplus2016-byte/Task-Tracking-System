@@ -16,11 +16,12 @@ fileHandler.js  →  comparison.js  →  excelExport.js  →  siteIdJc.js  →  
 ```
 
 ### Tab structure
-The UI has two tabs. Each tab is fully independent — separate DOM IDs, separate state, separate logic:
+The UI has three tabs. Each tab is fully independent — separate DOM IDs, separate state, separate logic:
 
 | Tab | Panel ID | Logic owner |
 |---|---|---|
-| Tracking Update | `#panelTracking` | `app.js` |
+| RF-TX Tracking Update | `#panelTracking` | `app.js` |
+| POC Tracking Update | `#panelPocTracking` | `pocTracking.js` |
 | Site ID-JC File | `#panelSiteId` | `siteIdJc.js` |
 
 Tab switching is handled by `initTabs()` in `app.js` using `aria-controls` as the link between button and panel.
@@ -60,12 +61,27 @@ SheetJS returns dates from this particular master file as `"dd-Mon-yy"` strings 
 
 ## Key files
 
-- **`js/app.js`** — Tracking Update tab wiring, `findSheetWithId()`, `checkJobCodeDuplicates()`, auto-trigger debounce (600 ms), tab switching
+- **`js/app.js`** — RF-TX Tracking Update tab wiring, `findSheetWithId()`, `checkJobCodeDuplicates()`, `resetTracking()`, auto-trigger debounce (600 ms), tab switching
+- **`js/pocTracking.js`** — POC Tracking Update tab, same structure as `app.js` but keyed on `"Job Code"` column and `"POC3 Tracking"` sheet; exposes only `PocTracking.init()`
 - **`js/siteIdJc.js`** — Site ID-JC tab, fully self-contained, exposes only `SiteIdJc.init()`
 - **`js/comparison.js`** — pure data logic, no DOM; all Map keys are `.toLowerCase()` for case-insensitive ID matching
 - **`js/fileHandler.js`** — file I/O and drag-drop; `setupDropZone` accepts all file types (SheetJS handles format errors at parse time)
 - **`js/excelExport.js`** — output workbook builder; `publicHeaders()` strips the internal `__source__` column from all output sheets
 
+### Reset / New Analysis
+Each tracking tab (RF-TX and POC) has a "↺ New Analysis" button that appears in the results section after analysis completes. Clicking it:
+- Clears all state (files, results)
+- Resets the drop zones and file lists
+- Hides the results, progress, warnings, and conflicts panels
+- Resets the file inputs so the same files can be re-uploaded
+
 ## PWA
 - `manifest.json` requires `icons/icon-192.png` and `icons/icon-512.png` to trigger the browser install prompt. These are not in the repo — open `icons/generate-icons.html` in a browser to download them.
-- `sw.js` caches all static assets for offline use under cache key `task-tracker-v1`. Bump the version string there when deploying significant updates.
+- `sw.js` caches all static assets for offline use. **Always bump the cache version string in `sw.js` before pushing any update**, otherwise installed apps will keep serving the old cached version.
+- Current cache version: `task-tracker-v1.1`. Use `v1.x` for small updates, `vX.0` for major releases.
+
+## Deployment checklist
+1. Bump the version in `sw.js` (e.g. `v1.1` → `v1.2`)
+2. Commit with a descriptive message
+3. Push to GitHub
+4. Reopen the installed app to load the update
