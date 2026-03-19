@@ -641,6 +641,8 @@ const AllowanceChecker = (() => {
             };
         }
 
+        // Build a Set of every "SiteID-JC" combo in the master, lowercased.
+        // Values in the master column look like "CABH185-MK01", "R5061-MK10", etc.
         const jcSet = new Set();
         for (const row of sheet.rows) {
             const val = (row[colIdx] ?? '').toString().trim();
@@ -879,7 +881,7 @@ const AllowanceChecker = (() => {
                 warnings.push(masterError);
             } else {
                 state.masterJcSet = jcSet;
-                console.log(`Master tracking: tab "${tabName}", column "${colName}", ${jcSet.size} entries`);
+                console.log(`Master tracking: tab "${tabName}", column "${colName}", ${jcSet.size} combos`);
             }
 
             /* ── Step 2: Fetch coordinator Google Sheets ─────── */
@@ -920,25 +922,60 @@ const AllowanceChecker = (() => {
                 );
             }
 
-            /* ── Step 3b: Compare JCs against master ─────────── */
+            /* ── Step 3b: Compare SiteID-JC combos against master ── */
             if (jcSet.size > 0 && filteredRows.length > 0) {
-                setProgress(90, 'Comparing JCs against master tracking…');
+                setProgress(90, 'Comparing SiteID-JC combos against master tracking…');
 
-                const missingJcs = new Map();   // lowercase jc → original value
+                // Each coordinator row can have multiple sites AND multiple job codes
+                // separated by "/", e.g.:
+                //   Site:  "CABH317/CABH338/CABH337"
+                //   JC:    "MK22/MK23/MK24"
+                //
+                // Pairs are positional: CABH317-MK22, CABH338-MK23, CABH337-MK24.
+                // The master "SiteID-JC" column stores these exact combinations.
+                //
+                // Rules:
+                //   • If site count ≠ JC count → error (data problem in the sheet)
+                //   • For each pair, check the combo against the master jcSet
+                //   • Missing combos → warning
+
+                const missingCombos = new Map();  // lowercase combo → display string
+
                 for (const row of filteredRows) {
-                    const jcRaw = (row.jc || '').trim();
-                    if (!jcRaw) continue;
-                    const jcLower = jcRaw.toLowerCase();
-                    if (!jcSet.has(jcLower) && !missingJcs.has(jcLower)) {
-                        missingJcs.set(jcLower, jcRaw);
+                    const siteRaw = (row.site || '').trim();
+                    const jcRaw   = (row.jc   || '').trim();
+                    if (!siteRaw || !jcRaw) continue;
+
+                    const sites = siteRaw.split('/').map(s => s.trim()).filter(Boolean);
+                    const jcs   = jcRaw.split('/').map(s => s.trim()).filter(Boolean);
+
+                    // Count mismatch = error (shown in red)
+                    if (sites.length !== jcs.length) {
+                        const label = [row.__source__, row.day && `Day ${row.day}`]
+                            .filter(Boolean).join(', ');
+                        errors.push(
+                            `Site/JC count mismatch${label ? ` (${esc(label)})` : ''}: ` +
+                            `${sites.length} site(s) [${esc(siteRaw)}] but ` +
+                            `${jcs.length} job code(s) [${esc(jcRaw)}]`
+                        );
+                        continue;
+                    }
+
+                    // Check each paired combo
+                    for (let i = 0; i < sites.length; i++) {
+                        const combo      = `${sites[i]}-${jcs[i]}`;
+                        const comboLower = combo.toLowerCase();
+                        if (!jcSet.has(comboLower) && !missingCombos.has(comboLower)) {
+                            missingCombos.set(comboLower, combo);
+                        }
                     }
                 }
 
-                if (missingJcs.size > 0) {
-                    const list = [...missingJcs.values()].sort().join(', ');
+                if (missingCombos.size > 0) {
+                    const list = [...missingCombos.values()].sort().join(', ');
                     warnings.push(
-                        `${missingJcs.size} JC value(s) from the filtered data not found in ` +
-                        `master tracking (tab: "${tabName}", column: "${colName}"): ${list}`
+                        `${missingCombos.size} SiteID-JC combo(s) not found in master tracking ` +
+                        `(tab: "${tabName}", column: "${colName}"): ${list}`
                     );
                 }
             }
