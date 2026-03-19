@@ -47,8 +47,9 @@ const AllowanceChecker = (() => {
 
     const state = {
         masterFile:    null,
-        sheetRows:     [],   // unified rows from all Google Sheets
-        filteredRows:  [],   // rows matching selected month + half
+        sheetRows:     [],      // unified rows from all Google Sheets
+        filteredRows:  [],      // rows matching selected month + half
+        masterJcSet:   new Set(), // SiteID-JC values from master tracking tab
         results:       null,
     };
 
@@ -453,7 +454,8 @@ const AllowanceChecker = (() => {
 
         const wb = XLSX.utils.book_new();
 
-        /* ── Sheet 1: Total Tracking ─────────────────────────── */
+        /* ── Sheet 1: Filtered Tracking (selected month + half) ─ */
+        const trackingTabName = `${monthAbbr} - ${halfStr}`;
         const trackingHeaders = [
             'Month', 'Day', 'Month Half', 'Coordinator', 'Site', 'Area',
             'Start Time', 'End Time', 'Project', 'Sub Project',
@@ -462,7 +464,7 @@ const AllowanceChecker = (() => {
         ];
         const trackingData = [
             trackingHeaders,
-            ...allRows.map(r => [
+            ...filteredRows.map(r => [
                 r.month, r.day, r.monthHalf, r.coordinator, r.site, r.area,
                 r.startTime, r.endTime, r.project, r.subProject,
                 r.engineer, r.tech1, r.tech2, r.tech3, r.driver,
@@ -477,7 +479,7 @@ const AllowanceChecker = (() => {
             { wch: 20 }, { wch: 20 }, { wch: 20 }, { wch: 20 }, { wch: 20 },
             { wch: 11 }, { wch: 18 }, { wch: 30 }, { wch: 12 },
         ];
-        XLSX.utils.book_append_sheet(wb, trackingSheet, 'Total Tracking');
+        XLSX.utils.book_append_sheet(wb, trackingSheet, trackingTabName);
 
         /* ── Sheet 2: Allowance Amount ───────────────────────── */
         const { team, drivers } = categorizeMembers(filteredRows, people);
@@ -521,6 +523,58 @@ const AllowanceChecker = (() => {
 
         /* ── Download ────────────────────────────────────────── */
         XLSX.writeFile(wb, `Allowance_Report_${monthAbbr}_${halfStr}.xlsx`);
+    }
+
+    /* ── Master tracking parser ──────────────────────────────── */
+
+    /**
+     * Locate the "Tracking" tab in the master file and extract all
+     * values from the "SiteID-JC" column into a Set for fast lookup.
+     *
+     * Tab matching:   exact name "tracking" → partial contains match
+     * Column matching: normalised (spaces/dashes stripped) exact "siteidjc"
+     *                  → any header that contains both "siteid" and "jc"
+     *
+     * @param  {Array}  masterSheets  Output of FileHandler.readFile()
+     * @returns {{ jcSet: Set, tabName: string|null, colName: string|null, error: string|null }}
+     */
+    function parseMasterTracking(masterSheets) {
+        const lc = s => s.toLowerCase().trim();
+
+        // Find the 'Tracking' tab
+        let sheet = masterSheets.find(s => lc(s.name) === 'tracking');
+        if (!sheet) sheet = masterSheets.find(s => lc(s.name).includes('tracking'));
+
+        if (!sheet) {
+            return {
+                jcSet: new Set(), tabName: null, colName: null,
+                error: `Tab "Tracking" not found in master file. ` +
+                       `Tabs available: ${masterSheets.map(s => `"${s.name}"`).join(', ')}`,
+            };
+        }
+
+        // Find the 'SiteID-JC' column — normalise by removing spaces and dashes
+        const norm = h => h.toLowerCase().replace(/[\s\-_]/g, '');
+        const normHeaders = sheet.headers.map(norm);
+
+        let colIdx = normHeaders.indexOf('siteidjc');
+        if (colIdx === -1) colIdx = normHeaders.findIndex(h => h.includes('siteid') && h.includes('jc'));
+
+        if (colIdx === -1) {
+            return {
+                jcSet: new Set(), tabName: sheet.name, colName: null,
+                error: `Column "SiteID-JC" not found in "${sheet.name}" tab. ` +
+                       `Headers found: ${sheet.headers.filter(Boolean).slice(0, 10).join(', ')}`,
+            };
+        }
+
+        const jcSet = new Set();
+        for (const row of sheet.rows) {
+            const val = (row[colIdx] ?? '').toString().trim();
+            if (val) jcSet.add(val.toLowerCase());
+        }
+
+        return { jcSet, tabName: sheet.name, colName: sheet.headers[colIdx], error: null };
     }
 
     /* ── Month dropdown ──────────────────────────────────────── */
@@ -743,6 +797,18 @@ const AllowanceChecker = (() => {
             setProgress(5, 'Reading master tracking file…');
             const masterSheets = await FileHandler.readFile(state.masterFile, undefined, 'ID#');
 
+            /* ── Step 1b: Parse master Tracking tab ──────────── */
+            setProgress(8, 'Parsing master tracking tab…');
+            const { jcSet, tabName, colName, error: masterError } =
+                parseMasterTracking(masterSheets);
+
+            if (masterError) {
+                warnings.push(masterError);
+            } else {
+                state.masterJcSet = jcSet;
+                console.log(`Master tracking: tab "${tabName}", column "${colName}", ${jcSet.size} entries`);
+            }
+
             /* ── Step 2: Fetch coordinator Google Sheets ─────── */
             setProgress(10, 'Fetching coordinator sheets…');
 
@@ -781,6 +847,29 @@ const AllowanceChecker = (() => {
                 );
             }
 
+            /* ── Step 3b: Compare JCs against master ─────────── */
+            if (jcSet.size > 0 && filteredRows.length > 0) {
+                setProgress(90, 'Comparing JCs against master tracking…');
+
+                const missingJcs = new Map();   // lowercase jc → original value
+                for (const row of filteredRows) {
+                    const jcRaw = (row.jc || '').trim();
+                    if (!jcRaw) continue;
+                    const jcLower = jcRaw.toLowerCase();
+                    if (!jcSet.has(jcLower) && !missingJcs.has(jcLower)) {
+                        missingJcs.set(jcLower, jcRaw);
+                    }
+                }
+
+                if (missingJcs.size > 0) {
+                    const list = [...missingJcs.values()].sort().join(', ');
+                    warnings.push(
+                        `${missingJcs.size} JC value(s) from the filtered data not found in ` +
+                        `master tracking (tab: "${tabName}", column: "${colName}"): ${list}`
+                    );
+                }
+            }
+
             /* ── Step 4: Compute allowances ──────────────────── */
             setProgress(92, 'Computing allowances…');
 
@@ -812,6 +901,7 @@ const AllowanceChecker = (() => {
         state.masterFile   = null;
         state.sheetRows    = [];
         state.filteredRows = [];
+        state.masterJcSet  = new Set();
         state.results      = null;
 
         renderMasterFile();
