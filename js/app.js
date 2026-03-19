@@ -501,14 +501,14 @@
         $('jcConflictsPanel').hidden     = true;
     }
 
-    $('resetTrackingBtn').addEventListener('click', resetTracking);
 
     /* ── Global "New Analysis" sidebar button ─────────────────── */
-    // Resets every tab at once so the user starts completely fresh.
+    // Calls each module's reset directly — no hidden button tricks needed.
     $('globalResetBtn').addEventListener('click', () => {
-        $('resetTrackingBtn').click();
-        $('resetPocBtn').click();
-        $('allowanceResetBtn').click();
+        resetTracking();
+        PocTracking.reset();
+        SiteIdJc.reset();
+        AllowanceChecker.reset();
     });
 
     /* ── Initialise ───────────────────────────────────────────── */

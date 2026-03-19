@@ -339,6 +339,25 @@ const PocTracking = (() => {
         $('pocResultsSection').scrollIntoView({ behavior: 'smooth', block: 'start' });
     }
 
+    /* ── Reset ──────────────────────────────────────────────── */
+    function reset() {
+        state.coordinatorFiles    = [];
+        state.masterFile          = null;
+        state.coordinatorCombined = null;
+        state.masterParsed        = null;
+        state.results             = null;
+
+        renderCoordinatorFiles();
+        renderMasterFile();
+        $('pocCoordinatorInput').value = '';
+        $('pocMasterInput').value      = '';
+
+        $('pocResultsSection').hidden   = true;
+        $('pocProgressSection').hidden  = true;
+        $('pocWarningsPanel').hidden    = true;
+        $('pocDuplicatesPanel').hidden  = true;
+    }
+
     /* ── Initialise ───────────────────────────────────────────── */
     function init() {
         const coordinatorDropZone = $('pocCoordinatorDropZone');
@@ -363,27 +382,6 @@ const PocTracking = (() => {
             flashCardBar($('pocMasterProgress'), $('pocMasterBar'));
             scheduleAutoProcess();
         }, false);
-
-        /* ── Reset ──────────────────────────────────────────────── */
-        function reset() {
-            state.coordinatorFiles    = [];
-            state.masterFile          = null;
-            state.coordinatorCombined = null;
-            state.masterParsed        = null;
-            state.results             = null;
-
-            renderCoordinatorFiles();
-            renderMasterFile();
-            $('pocCoordinatorInput').value = '';
-            $('pocMasterInput').value      = '';
-
-            $('pocResultsSection').hidden   = true;
-            $('pocProgressSection').hidden  = true;
-            $('pocWarningsPanel').hidden    = true;
-            $('pocDuplicatesPanel').hidden  = true;
-        }
-
-        $('resetPocBtn').addEventListener('click', reset);
 
         /* ── Download ───────────────────────────────────────────── */
         $('pocDownloadBtn').addEventListener('click', () => {
@@ -420,6 +418,6 @@ const PocTracking = (() => {
         });
     }
 
-    return { init };
+    return { init, reset };
 
 })();

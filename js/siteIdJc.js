@@ -374,7 +374,17 @@ const SiteIdJc = (() => {
         });
     }
 
+    /* ── Reset ────────────────────────────────────────────────── */
+    function reset() {
+        _files    = [];
+        _workbook = null;
+        renderFiles();
+        $('siteIdInput').value            = '';
+        $('siteIdResultsSection').hidden  = true;
+        $('siteIdProgressSection').hidden = true;
+    }
+
     /* ── Public API ───────────────────────────────────────────── */
-    return { init };
+    return { init, reset };
 
 })();

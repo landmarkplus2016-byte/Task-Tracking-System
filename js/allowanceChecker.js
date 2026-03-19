@@ -317,16 +317,18 @@ const AllowanceChecker = (() => {
      *   vacationTotal     = Σ their dailySalary for rows with vacation flag
      *   grandTotal        = allowanceTotal + vacationTotal
      *
-     * @returns {{ people: object[], grandTotal: number, calcWarnings: string[] }}
+     * @returns {{ people: object[], grandTotal: number, calcWarnings: string[], calcErrors: string[] }}
      */
     function computeAllowances(filteredRows) {
         const teamSalaryMap   = buildSalaryMap(AppData.getSalaries());
         const driverSalaryMap = buildSalaryMap(AppData.getDriverSalaries());
 
-        // normalized name → accumulator object
+        // Key = normName(canonical name) so all spelling variants of the same
+        // person merge into one accumulator entry.
         const personMap    = new Map();
         const calcWarnings = [];
-        const warnedNames  = new Set();   // suppress duplicate warnings
+        const calcErrors   = [];          // names not found in list.xlsx at all
+        const seenNames    = new Set();   // suppress duplicate error/warning messages
         let   grandTotal   = 0;
 
         const TEAM_FIELDS_LOCAL = ['engineer', 'tech1', 'tech2', 'tech3'];
@@ -343,11 +345,20 @@ const AllowanceChecker = (() => {
                 if (!rawName) continue;
 
                 rowMemberCount++;
-                const normKey     = normName(rawName);
                 const sal         = lookupSalary(teamSalaryMap, rawName);
                 const displayName = sal ? sal.name : rawName;
+                // Use canonical key so "mostafa ahmed" and "Mostafa Ahmed Mohamed"
+                // both resolve to the same personMap entry.
+                const normKey     = normName(displayName);
 
                 if (!personMap.has(normKey)) {
+                    if (!sal && !seenNames.has(normKey)) {
+                        seenNames.add(normKey);
+                        calcErrors.push(
+                            `"${rawName}" was not found in the Team Salaries list — ` +
+                            `please add them to list.xlsx.`
+                        );
+                    }
                     personMap.set(normKey, {
                         name:           displayName,
                         rows:           0,
@@ -357,7 +368,7 @@ const AllowanceChecker = (() => {
                         isTeam:         true,
                     });
                 } else {
-                    // If this person was first seen as a driver, upgrade to team
+                    // If first seen as driver, upgrade to team
                     personMap.get(normKey).isTeam = true;
                 }
 
@@ -369,12 +380,8 @@ const AllowanceChecker = (() => {
                     if (sal && sal.dailySalary > 0) {
                         person.vacationTotal += sal.dailySalary;
                         rowVacationTotal     += sal.dailySalary;
-                    } else if (!sal && !warnedNames.has(normKey)) {
-                        warnedNames.add(normKey);
-                        calcWarnings.push(
-                            `"${rawName}" not found in Team Salaries — vacation allowance skipped.`
-                        );
                     }
+                    // No extra warning when not found — calcErrors already covers it
                 }
             }
 
@@ -382,19 +389,26 @@ const AllowanceChecker = (() => {
             const drvRaw = (row.driver || '').trim();
             if (drvRaw) {
                 rowMemberCount++;
-                const normKey = normName(drvRaw);
-                // Fall back to teamSalaryMap if driver is not in driver list
-                const sal         = lookupSalary(driverSalaryMap, drvRaw) || lookupSalary(teamSalaryMap, drvRaw);
+                const sal         = lookupSalary(driverSalaryMap, drvRaw)
+                                 || lookupSalary(teamSalaryMap, drvRaw);
                 const displayName = sal ? sal.name : drvRaw;
+                const normKey     = normName(displayName);
 
                 if (!personMap.has(normKey)) {
+                    if (!sal && !seenNames.has(normKey)) {
+                        seenNames.add(normKey);
+                        calcErrors.push(
+                            `"${drvRaw}" was not found in the Driver Salaries list — ` +
+                            `please add them to list.xlsx.`
+                        );
+                    }
                     personMap.set(normKey, {
                         name:           displayName,
                         rows:           0,
                         allowanceTotal: 0,
                         vacationTotal:  0,
                         bankAccount:    sal ? sal.bankAccount : '',
-                        isTeam:         false,   // driver unless also in a team field
+                        isTeam:         false,
                     });
                 }
 
@@ -402,16 +416,9 @@ const AllowanceChecker = (() => {
                 person.rows++;
                 person.allowanceTotal += allowancePerPerson;
 
-                if (hasVacation) {
-                    if (sal && sal.dailySalary > 0) {
-                        person.vacationTotal += sal.dailySalary;
-                        rowVacationTotal     += sal.dailySalary;
-                    } else if (!sal && !warnedNames.has(normKey)) {
-                        warnedNames.add(normKey);
-                        calcWarnings.push(
-                            `"${drvRaw}" not found in Driver Salaries — vacation allowance skipped.`
-                        );
-                    }
+                if (hasVacation && sal && sal.dailySalary > 0) {
+                    person.vacationTotal += sal.dailySalary;
+                    rowVacationTotal     += sal.dailySalary;
                 }
             }
 
@@ -422,7 +429,7 @@ const AllowanceChecker = (() => {
             .map(p => ({ ...p, grandTotal: p.allowanceTotal + p.vacationTotal }))
             .sort((a, b) => a.name.localeCompare(b.name));
 
-        return { people, grandTotal, calcWarnings };
+        return { people, grandTotal, calcWarnings, calcErrors };
     }
 
     /* ── Repetition check ────────────────────────────────────── */
@@ -992,8 +999,9 @@ const AllowanceChecker = (() => {
             /* ── Step 4: Compute allowances ──────────────────── */
             setProgress(92, 'Computing allowances…');
 
-            const { people, grandTotal, calcWarnings } = computeAllowances(filteredRows);
+            const { people, grandTotal, calcWarnings, calcErrors } = computeAllowances(filteredRows);
             warnings.push(...calcWarnings);
+            errors.push(...calcErrors.map(e => esc(e)));
 
             /* ── Step 5: Repetition check ────────────────────── */
             setProgress(97, 'Checking for repetitions…');
@@ -1043,9 +1051,8 @@ const AllowanceChecker = (() => {
 
         $('allowanceRunBtn').addEventListener('click', runAnalysis);
         $('allowanceDownloadBtn').addEventListener('click', generateExcel);
-        $('allowanceResetBtn').addEventListener('click', reset);
     }
 
-    return { init };
+    return { init, reset };
 
 })();
