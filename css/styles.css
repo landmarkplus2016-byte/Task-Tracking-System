@@ -705,6 +705,24 @@ main {
     padding: 16px;
 }
 
+/* ── Allowance Checker — repetition error entries ───────────── */
+.rep-header {
+    display: block;
+    margin-bottom: 4px;
+}
+
+.rep-entry {
+    display: inline-block;
+    background: #fee2e2;
+    border: 1px solid #fca5a5;
+    border-radius: 4px;
+    padding: 1px 8px;
+    margin: 2px 3px 2px 0;
+    font-size: .78rem;
+    color: var(--gray-700);
+    font-family: 'Cascadia Code', 'Consolas', 'Courier New', monospace;
+}
+
 /* ── Allowance Checker — tfoot total row ─────────────────────── */
 .allowance-table-tfoot td {
     font-weight: 700;

@@ -327,6 +327,73 @@ const AllowanceChecker = (() => {
         return { people, grandTotal, calcWarnings };
     }
 
+    /* ── Repetition check ────────────────────────────────────── */
+
+    /**
+     * For each unique day in the filtered dataset, scan all team-member
+     * fields. If the same person appears in more than one row on the same
+     * day, generate an error entry (pre-formatted HTML, values escaped).
+     *
+     * @returns {string[]}  Array of HTML error strings, one per duplicate.
+     */
+    function checkRepetitions(filteredRows) {
+        // day → Map( name.toLowerCase() → { name, labels[] } )
+        const dayMap = new Map();
+
+        for (const row of filteredRows) {
+            const day = (row.day || '').trim();
+            if (!day) continue;
+
+            const members = MEMBER_FIELDS
+                .map(f => (row[f] || '').trim())
+                .filter(Boolean);
+            if (!members.length) continue;
+
+            // Readable row label for the error message
+            const parts = [];
+            if (row.__source__) parts.push(esc(row.__source__));
+            if (row.site)       parts.push(`Site: ${esc(row.site)}`);
+            if (row.jc)         parts.push(`JC: ${esc(row.jc)}`);
+            const label = parts.length ? parts.join(' / ') : '(unknown row)';
+
+            if (!dayMap.has(day)) dayMap.set(day, new Map());
+            const personMap = dayMap.get(day);
+
+            for (const memberName of members) {
+                const key = memberName.toLowerCase();
+                if (!personMap.has(key)) personMap.set(key, { name: memberName, labels: [] });
+                personMap.get(key).labels.push(label);
+            }
+        }
+
+        const errors = [];
+
+        // Sort days numerically where possible
+        const sortedDays = Array.from(dayMap.keys())
+            .sort((a, b) => (Number(a) - Number(b)) || a.localeCompare(b));
+
+        for (const day of sortedDays) {
+            const people = Array.from(dayMap.get(day).values())
+                .sort((a, b) => a.name.localeCompare(b.name));
+
+            for (const { name, labels } of people) {
+                if (labels.length < 2) continue;
+
+                const entries = labels
+                    .map(l => `<span class="rep-entry">${l}</span>`)
+                    .join('');
+
+                errors.push(
+                    `<span class="rep-header">Day&nbsp;<strong>${esc(day)}</strong> — ` +
+                    `<strong>${esc(name)}</strong> appears in ${labels.length} rows:</span> ` +
+                    entries
+                );
+            }
+        }
+
+        return errors;
+    }
+
     /* ── Month dropdown ──────────────────────────────────────── */
     function populateMonthDropdown() {
         const sel = $('allowanceMonth');
@@ -395,7 +462,9 @@ const AllowanceChecker = (() => {
         const warnSection = $('allowanceWarningsSection');
 
         if (errors.length) {
-            $('allowanceErrorsList').innerHTML = errors.map(e => `<li>${esc(e)}</li>`).join('');
+            // Error items are pre-formatted HTML — individual user-data values
+            // are already escaped at the point of construction.
+            $('allowanceErrorsList').innerHTML = errors.map(e => `<li>${e}</li>`).join('');
             errSection.hidden = false;
         } else {
             errSection.hidden = true;
@@ -567,10 +636,16 @@ const AllowanceChecker = (() => {
             }
 
             /* ── Step 4: Compute allowances ──────────────────── */
-            setProgress(94, 'Computing allowances…');
+            setProgress(92, 'Computing allowances…');
 
             const { people, grandTotal, calcWarnings } = computeAllowances(filteredRows);
             warnings.push(...calcWarnings);
+
+            /* ── Step 5: Repetition check ────────────────────── */
+            setProgress(97, 'Checking for repetitions…');
+
+            const repErrors = checkRepetitions(filteredRows);
+            errors.push(...repErrors);
 
             setProgress(100, 'Done!');
             hideProgress();
@@ -581,7 +656,7 @@ const AllowanceChecker = (() => {
 
         } catch (err) {
             hideProgress();
-            errors.push(err.message);
+            errors.push(esc(err.message));
             showIssues(errors, warnings);
         }
     }
