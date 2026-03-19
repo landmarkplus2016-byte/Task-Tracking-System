@@ -63,6 +63,13 @@ const AllowanceChecker = (() => {
             .replace(/"/g, '&quot;');
     }
 
+    /* ── Number formatter ────────────────────────────────────── */
+    function fmt(n) {
+        return Number(n).toLocaleString(undefined, {
+            minimumFractionDigits: 2, maximumFractionDigits: 2,
+        });
+    }
+
     /* ── Column fuzzy-match (exact first, then contains) ─────── */
     function findColIdx(headers, terms) {
         const lower = headers.map(h => h.toLowerCase().trim());
@@ -202,45 +209,17 @@ const AllowanceChecker = (() => {
      * Handles: numeric ("3", "03"), full name ("March"), 3-letter
      * abbreviation ("Mar"), and "March 2025"-style strings.
      */
-    function matchesMonth(cellValue, monthVal, monthName) {
-        const v = cellValue.toString().trim().toLowerCase();
-        if (!v) return false;
-
-        // Numeric: "3", "03", "3.0"
-        const num = parseFloat(v);
-        if (!isNaN(num) && Math.round(num) === monthVal) return true;
-
-        const name = monthName.toLowerCase();
-
-        // Exact full name: "march"
-        if (v === name) return true;
-
-        // 3-letter abbreviation: "mar"
-        if (v === name.slice(0, 3)) return true;
-
-        // Cell starts with month name: "march 2025", "march-25"
-        if (v.startsWith(name)) return true;
-
-        return false;
+    // Matches "Jan", "Feb", "Mar" … (case-insensitive 3-letter abbreviation)
+    function matchesMonth(cellValue, _monthVal, monthName) {
+        const v    = cellValue.toString().trim().toLowerCase();
+        const abbr = monthName.slice(0, 3).toLowerCase();   // e.g. "jan", "feb"
+        return v === abbr;
     }
 
-    /**
-     * Returns true when a cell value represents the given half.
-     * Handles: "First" / "Second", "First Half" / "Second Half",
-     * "1" / "2", "1st" / "2nd", "1st Half" / "2nd Half".
-     */
+    // Matches "First" or "Second" only (case-insensitive)
     function matchesHalf(cellValue, half) {
         const v = cellValue.toString().trim().toLowerCase();
-        if (!v) return false;
-
-        if (half === 'first') {
-            return v === 'first' || v === 'first half' ||
-                   v === '1'     || v === '1st'        ||
-                   v === '1st half' || v.startsWith('first');
-        }
-        return v === 'second' || v === 'second half' ||
-               v === '2'      || v === '2nd'         ||
-               v === '2nd half' || v.startsWith('second');
+        return half === 'first' ? v === 'first' : v === 'second';
     }
 
     /**
@@ -252,6 +231,100 @@ const AllowanceChecker = (() => {
             matchesMonth(row.month,     monthVal, monthName) &&
             matchesHalf( row.monthHalf, half)
         );
+    }
+
+    /* ── Allowance calculation ───────────────────────────────── */
+
+    const MEMBER_FIELDS = ['engineer', 'tech1', 'tech2', 'tech3', 'driver'];
+
+    /**
+     * Compute per-person allowance totals from the filtered rows.
+     *
+     * Per row:
+     *   memberCount       = non-empty fields among engineer/tech1-3/driver
+     *   baseAllowance     = row.allowance × memberCount
+     *   vacationAllowance = Σ dailySalary for each member (only when
+     *                       row.vacationAllowance is non-empty)
+     *   rowTotal          = baseAllowance + vacationAllowance
+     *
+     * Per person:
+     *   allowanceTotal    = Σ row.allowance for every row they appear in
+     *   vacationTotal     = Σ their dailySalary for rows with vacation flag
+     *   grandTotal        = allowanceTotal + vacationTotal
+     *
+     * @returns {{ people: object[], grandTotal: number, calcWarnings: string[] }}
+     */
+    function computeAllowances(filteredRows) {
+        const salaries = AppData.getSalaries();   // [{ name, dailySalary, bankAccount }]
+
+        // Build salary lookup keyed by lowercase name
+        const salaryMap = new Map();
+        for (const s of salaries) {
+            salaryMap.set(s.name.toLowerCase().trim(), {
+                dailySalary: parseFloat(s.dailySalary) || 0,
+                bankAccount: s.bankAccount,
+            });
+        }
+
+        // name.toLowerCase() → accumulator object
+        const personMap    = new Map();
+        const calcWarnings = [];
+        const warnedNames  = new Set();   // suppress duplicate warnings
+        let   grandTotal   = 0;
+
+        for (const row of filteredRows) {
+            // Collect the non-empty team members for this row
+            const members = MEMBER_FIELDS
+                .map(f => (row[f] || '').trim())
+                .filter(Boolean);
+
+            if (!members.length) continue;
+
+            const allowancePerPerson = parseFloat(row.allowance) || 0;
+            const hasVacation        = (row.vacationAllowance || '').trim() !== '';
+            let   rowVacationTotal   = 0;
+
+            for (const memberName of members) {
+                const key = memberName.toLowerCase();
+
+                // Initialise person entry on first encounter
+                if (!personMap.has(key)) {
+                    const sal = salaryMap.get(key);
+                    personMap.set(key, {
+                        name:           memberName,
+                        rows:           0,
+                        allowanceTotal: 0,
+                        vacationTotal:  0,
+                        bankAccount:    sal ? sal.bankAccount : '',
+                    });
+                }
+
+                const person = personMap.get(key);
+                person.rows++;
+                person.allowanceTotal += allowancePerPerson;
+
+                if (hasVacation) {
+                    const sal = salaryMap.get(key);
+                    if (sal && sal.dailySalary > 0) {
+                        person.vacationTotal += sal.dailySalary;
+                        rowVacationTotal     += sal.dailySalary;
+                    } else if (!sal && !warnedNames.has(key)) {
+                        warnedNames.add(key);
+                        calcWarnings.push(
+                            `"${memberName}" not found in Salaries data — vacation allowance skipped for this person.`
+                        );
+                    }
+                }
+            }
+
+            grandTotal += (allowancePerPerson * members.length) + rowVacationTotal;
+        }
+
+        const people = Array.from(personMap.values())
+            .map(p => ({ ...p, grandTotal: p.allowanceTotal + p.vacationTotal }))
+            .sort((a, b) => a.name.localeCompare(b.name));
+
+        return { people, grandTotal, calcWarnings };
     }
 
     /* ── Month dropdown ──────────────────────────────────────── */
@@ -345,19 +418,11 @@ const AllowanceChecker = (() => {
     }
 
     /* ── Results display ─────────────────────────────────────── */
-    function showResults(monthName, halfLabel, sourceCounts, totalRows, filteredCount) {
+    function showResults(monthName, halfLabel, sourceCounts, totalRows, filteredCount, people, grandTotal) {
         $('allowanceResultsSummary').textContent = `${monthName} — ${halfLabel}`;
 
-        // Fetch summary table
-        const tableRows = Array.from(sourceCounts.entries())
-            .map(([name, count]) => `
-                <tr>
-                    <td>${esc(name)}</td>
-                    <td class="allowance-count ${count === 0 ? 'allowance-count--zero' : ''}">${count}</td>
-                </tr>
-            `).join('');
-
-        $('allowanceResultsBody').innerHTML = `
+        /* ── Stat cards ─────────────────────────────────────── */
+        const statCards = `
             <div class="allowance-fetch-summary">
                 <div class="allowance-fetch-stat">
                     <span class="allowance-fetch-num">${sourceCounts.size}</span>
@@ -371,16 +436,79 @@ const AllowanceChecker = (() => {
                     <span class="allowance-fetch-num">${filteredCount}</span>
                     <span class="allowance-fetch-label">${esc(monthName)} — ${esc(halfLabel)}</span>
                 </div>
+                <div class="allowance-fetch-stat allowance-fetch-stat--total">
+                    <span class="allowance-fetch-num allowance-fetch-num--total">${fmt(grandTotal)}</span>
+                    <span class="allowance-fetch-label">Grand Total</span>
+                </div>
             </div>
+        `;
+
+        /* ── Per-person breakdown table ─────────────────────── */
+        const totAllowance = people.reduce((s, p) => s + p.allowanceTotal, 0);
+        const totVacation  = people.reduce((s, p) => s + p.vacationTotal,  0);
+        const totGrand     = people.reduce((s, p) => s + p.grandTotal,     0);
+
+        const personRows = people.map(p => `
+            <tr>
+                <td>${esc(p.name)}</td>
+                <td class="allowance-td-num">${p.rows}</td>
+                <td class="allowance-td-num">${fmt(p.allowanceTotal)}</td>
+                <td class="allowance-td-num">${p.vacationTotal > 0 ? fmt(p.vacationTotal) : '<span class="allowance-nil">—</span>'}</td>
+                <td class="allowance-td-num allowance-td-total">${fmt(p.grandTotal)}</td>
+                <td class="allowance-td-bank">${esc(p.bankAccount) || '<span class="allowance-nil">—</span>'}</td>
+            </tr>
+        `).join('');
+
+        const personTable = `
+            <h3 class="allowance-section-title">Per-Person Breakdown</h3>
             <div class="allowance-table-wrap">
                 <table class="allowance-table">
                     <thead>
-                        <tr><th>Coordinator / Sheet</th><th>Rows loaded</th></tr>
+                        <tr>
+                            <th>Name</th>
+                            <th class="allowance-th-num">Rows</th>
+                            <th class="allowance-th-num">Allowance</th>
+                            <th class="allowance-th-num">Vacation</th>
+                            <th class="allowance-th-num">Total</th>
+                            <th>Bank Account</th>
+                        </tr>
                     </thead>
-                    <tbody>${tableRows || '<tr><td colspan="2" style="text-align:center;color:var(--gray-400);">No data</td></tr>'}</tbody>
+                    <tbody>
+                        ${personRows || '<tr><td colspan="6" class="allowance-empty">No data</td></tr>'}
+                    </tbody>
+                    <tfoot>
+                        <tr class="allowance-table-tfoot">
+                            <td>Totals</td>
+                            <td class="allowance-td-num">—</td>
+                            <td class="allowance-td-num">${fmt(totAllowance)}</td>
+                            <td class="allowance-td-num">${totVacation > 0 ? fmt(totVacation) : '<span class="allowance-nil">—</span>'}</td>
+                            <td class="allowance-td-num allowance-td-total">${fmt(totGrand)}</td>
+                            <td></td>
+                        </tr>
+                    </tfoot>
                 </table>
             </div>
         `;
+
+        /* ── Source breakdown table ──────────────────────────── */
+        const sourceRows = Array.from(sourceCounts.entries()).map(([name, count]) => `
+            <tr>
+                <td>${esc(name)}</td>
+                <td class="allowance-td-num ${count === 0 ? 'allowance-count--zero' : ''}">${count}</td>
+            </tr>
+        `).join('');
+
+        const sourceTable = `
+            <h3 class="allowance-section-title">Data Sources</h3>
+            <div class="allowance-table-wrap">
+                <table class="allowance-table">
+                    <thead><tr><th>Coordinator / Sheet</th><th class="allowance-th-num">Rows loaded</th></tr></thead>
+                    <tbody>${sourceRows || '<tr><td colspan="2" class="allowance-empty">No data</td></tr>'}</tbody>
+                </table>
+            </div>
+        `;
+
+        $('allowanceResultsBody').innerHTML = statCards + personTable + sourceTable;
 
         $('allowanceResultsSection').hidden = false;
         $('allowanceResultsSection').scrollIntoView({ behavior: 'smooth', block: 'start' });
@@ -433,35 +561,22 @@ const AllowanceChecker = (() => {
             if (rows.length > 0 && filteredRows.length === 0) {
                 warnings.push(
                     `No rows matched "${monthName} — ${halfLabel}". ` +
-                    `Verify that the Month and Month Half columns in your sheets ` +
-                    `use a recognised format (e.g. "March" / "First Half").`
+                    `Verify that the Month column uses a 3-letter abbreviation (e.g. "Jan", "Feb") ` +
+                    `and Month Half uses "First" or "Second".`
                 );
             }
 
-            /* ── Step 4: Analysis ────────────────────────────── */
-            setProgress(94, 'Analysing…');
+            /* ── Step 4: Compute allowances ──────────────────── */
+            setProgress(94, 'Computing allowances…');
 
-            // ── Analysis logic goes here ──────────────────────
-            // Available:
-            //   state.filteredRows — rows matching selected month + half
-            //   state.sheetRows    — all combined rows (pre-filter)
-            //   masterSheets       — [{ name, headers, rows, detectedHeaderRow }]
-            //   monthVal           — 1-based month number (e.g. 3 = March)
-            //   half               — 'first' | 'second'
-            //   monthName, halfLabel — display strings
-            //
-            // Each row has these keys:
-            //   __source__, month, day, monthHalf, coordinator, site, area,
-            //   startTime, endTime, project, subProject, engineer,
-            //   tech1, tech2, tech3, driver, allowance, vacationAllowance,
-            //   workDetails, jc
-            // ─────────────────────────────────────────────────
+            const { people, grandTotal, calcWarnings } = computeAllowances(filteredRows);
+            warnings.push(...calcWarnings);
 
             setProgress(100, 'Done!');
             hideProgress();
 
-            state.results = { monthVal, monthName, half, halfLabel, masterSheets };
-            showResults(monthName, halfLabel, sourceCounts, rows.length, filteredRows.length);
+            state.results = { monthVal, monthName, half, halfLabel, masterSheets, people, grandTotal };
+            showResults(monthName, halfLabel, sourceCounts, rows.length, filteredRows.length, people, grandTotal);
             showIssues(errors, warnings);
 
         } catch (err) {

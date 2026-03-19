@@ -661,8 +661,57 @@ main {
     border-color: #a7f3d0;
 }
 
-.allowance-fetch-stat--filtered .allowance-fetch-num {
-    color: var(--success);
+.allowance-fetch-stat--filtered .allowance-fetch-num { color: var(--success); }
+
+.allowance-fetch-stat--total {
+    background: var(--warning-light);
+    border-color: #fcd34d;
+}
+
+.allowance-fetch-stat--total .allowance-fetch-num { color: var(--warning); }
+
+.allowance-fetch-num--total { font-size: 1.35rem; }
+
+/* ── Allowance Checker — section headings ────────────────────── */
+.allowance-section-title {
+    font-size: .85rem;
+    font-weight: 600;
+    color: var(--gray-500);
+    text-transform: uppercase;
+    letter-spacing: .05em;
+    margin: 24px 0 8px;
+}
+
+/* ── Allowance Checker — table cell variants ─────────────────── */
+.allowance-th-num,
+.allowance-td-num  { text-align: right; white-space: nowrap; }
+
+.allowance-td-total {
+    font-weight: 700;
+    color: var(--gray-800);
+}
+
+.allowance-td-bank {
+    font-family: 'Cascadia Code', 'Consolas', 'Courier New', monospace;
+    font-size: .8rem;
+    color: var(--gray-600);
+}
+
+.allowance-nil { color: var(--gray-300); }
+
+.allowance-empty {
+    text-align: center;
+    color: var(--gray-400);
+    padding: 16px;
+}
+
+/* ── Allowance Checker — tfoot total row ─────────────────────── */
+.allowance-table-tfoot td {
+    font-weight: 700;
+    color: var(--gray-800);
+    background: var(--gray-50);
+    border-top: 2px solid var(--gray-200);
+    padding: 10px 14px;
 }
 
 /* ── Allowance Checker — Data table ─────────────────────────── */
