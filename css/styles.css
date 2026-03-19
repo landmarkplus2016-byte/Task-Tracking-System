@@ -182,6 +182,20 @@ main {
     overflow-x: hidden;
 }
 
+/* ── App Data Error Banner ─────────────────────────────────── */
+.app-data-error {
+    background: var(--danger-light);
+    border: 1px solid #fca5a5;
+    border-radius: var(--radius);
+    padding: 12px 16px;
+    margin-bottom: 20px;
+    color: var(--danger);
+    font-size: .875rem;
+}
+
+.app-data-error p { margin: 0; }
+.app-data-error p + p { margin-top: 4px; }
+
 /* ── Upload Section ────────────────────────────────────────── */
 .upload-grid {
     display: grid;
@@ -557,6 +571,148 @@ main {
     margin-left: auto;
     margin-right: auto;
     margin-bottom: 24px;
+}
+
+/* ── Allowance Checker — Controls ─────────────────────────── */
+.allowance-controls-card {
+    background: var(--white);
+    border: 1px solid var(--gray-200);
+    border-radius: var(--radius-lg);
+    padding: 20px 24px;
+    box-shadow: var(--shadow);
+    display: flex;
+    flex-wrap: wrap;
+    gap: 24px;
+    margin-bottom: 24px;
+}
+
+.allowance-control-group {
+    display: flex;
+    flex-direction: column;
+    gap: 6px;
+    min-width: 180px;
+}
+
+.allowance-label {
+    font-size: .75rem;
+    font-weight: 600;
+    color: var(--gray-500);
+    text-transform: uppercase;
+    letter-spacing: .05em;
+}
+
+.allowance-select {
+    padding: 9px 32px 9px 12px;
+    border: 1.5px solid var(--gray-300);
+    border-radius: var(--radius);
+    font-size: .9rem;
+    color: var(--gray-800);
+    background: var(--white);
+    cursor: pointer;
+    appearance: none;
+    background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='12' height='8' viewBox='0 0 12 8'%3E%3Cpath fill='%236b7280' d='M1 1l5 5 5-5'/%3E%3C/svg%3E");
+    background-repeat: no-repeat;
+    background-position: right 11px center;
+    transition: border-color .15s, box-shadow .15s;
+}
+
+.allowance-select:focus {
+    outline: none;
+    border-color: var(--primary);
+    box-shadow: 0 0 0 3px rgba(26, 86, 219, .12);
+}
+
+/* ── Allowance Checker — Fetch summary ─────────────────────── */
+.allowance-fetch-summary {
+    display: flex;
+    gap: 20px;
+    flex-wrap: wrap;
+    margin-bottom: 20px;
+}
+
+.allowance-fetch-stat {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    background: var(--primary-light);
+    border: 1px solid #bfdbfe;
+    border-radius: var(--radius);
+    padding: 16px 28px;
+    min-width: 120px;
+}
+
+.allowance-fetch-num {
+    font-size: 2rem;
+    font-weight: 700;
+    color: var(--primary);
+    line-height: 1;
+    margin-bottom: 6px;
+}
+
+.allowance-fetch-label {
+    font-size: .75rem;
+    font-weight: 500;
+    color: var(--gray-600);
+    text-align: center;
+}
+
+.allowance-fetch-stat--filtered {
+    background: var(--success-light);
+    border-color: #a7f3d0;
+}
+
+.allowance-fetch-stat--filtered .allowance-fetch-num {
+    color: var(--success);
+}
+
+/* ── Allowance Checker — Data table ─────────────────────────── */
+.allowance-table-wrap {
+    overflow-x: auto;
+    border: 1px solid var(--gray-200);
+    border-radius: var(--radius);
+    margin-bottom: 20px;
+}
+
+.allowance-table {
+    width: 100%;
+    border-collapse: collapse;
+    font-size: .875rem;
+}
+
+.allowance-table thead tr {
+    background: var(--gray-100);
+    border-bottom: 1px solid var(--gray-200);
+}
+
+.allowance-table th {
+    padding: 10px 14px;
+    text-align: left;
+    font-size: .75rem;
+    font-weight: 600;
+    color: var(--gray-500);
+    text-transform: uppercase;
+    letter-spacing: .04em;
+    white-space: nowrap;
+}
+
+.allowance-table td {
+    padding: 9px 14px;
+    color: var(--gray-700);
+    border-bottom: 1px solid var(--gray-100);
+}
+
+.allowance-table tbody tr:last-child td { border-bottom: none; }
+
+.allowance-table tbody tr:hover td { background: var(--gray-50); }
+
+.allowance-count {
+    font-weight: 600;
+    color: var(--success);
+}
+
+.allowance-count--zero {
+    color: var(--gray-400);
+    font-weight: 400;
 }
 
 /* ── Footer ────────────────────────────────────────────────── */

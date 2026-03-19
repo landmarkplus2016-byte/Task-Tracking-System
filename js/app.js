@@ -505,8 +505,10 @@
 
     /* ── Initialise ───────────────────────────────────────────── */
     initTabs();
+    AppData.init();
     SiteIdJc.init();
     PocTracking.init();
+    AllowanceChecker.init();
 
     /* ── Download ─────────────────────────────────────────────── */
     downloadBtn.addEventListener('click', () => {

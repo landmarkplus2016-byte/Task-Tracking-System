@@ -51,6 +51,13 @@
                     aria-controls="panelSiteId">
                 <span class="nav-icon">📍</span> Site ID-JC File
             </button>
+            <button class="tab-btn"
+                    id="tabBtnAllowance"
+                    role="tab"
+                    aria-selected="false"
+                    aria-controls="panelAllowanceChecker">
+                <span class="nav-icon">💰</span> Allowance Checker
+            </button>
         </nav>
 
     </aside>
@@ -63,6 +70,9 @@
         </header>
 
         <main>
+
+        <!-- ── App Data Error Banner ─────────────────────────── -->
+        <div class="app-data-error" id="appDataError" hidden></div>
 
         <!-- ══════════════════════════════════════════════════════ -->
         <!-- Tab Panel: Tracking Update                            -->
@@ -358,6 +368,97 @@
 
         </div><!-- /panelPocTracking -->
 
+        <!-- ══════════════════════════════════════════════════════ -->
+        <!-- Tab Panel: Allowance Checker                         -->
+        <!-- ══════════════════════════════════════════════════════ -->
+        <div class="tab-panel" id="panelAllowanceChecker" role="tabpanel" hidden>
+
+            <section class="upload-section">
+
+                <!-- ── Month + Half selectors ───────────────────── -->
+                <div class="allowance-controls-card">
+                    <div class="allowance-control-group">
+                        <label class="allowance-label" for="allowanceMonth">Month</label>
+                        <select class="allowance-select" id="allowanceMonth"></select>
+                    </div>
+                    <div class="allowance-control-group">
+                        <label class="allowance-label" for="allowanceHalf">Month Half</label>
+                        <select class="allowance-select" id="allowanceHalf">
+                            <option value="first">First Half</option>
+                            <option value="second">Second Half</option>
+                        </select>
+                    </div>
+                </div>
+
+                <!-- ── Master Tracking file upload ──────────────── -->
+                <div class="upload-grid upload-grid--single">
+                    <div class="upload-card">
+                        <div class="card-header">
+                            <span class="card-icon">📊</span>
+                            <div>
+                                <h2>Master Tracking File</h2>
+                                <p>Required — drop the master file or browse (.xlsx)</p>
+                            </div>
+                        </div>
+                        <div class="drop-zone" id="allowanceMasterDropZone">
+                            <div class="drop-zone-inner">
+                                <div class="drop-icon">⬆</div>
+                                <p class="drop-text">Drag &amp; drop file here</p>
+                                <label class="btn btn-outline" for="allowanceMasterInput">Browse</label>
+                                <input type="file" id="allowanceMasterInput" accept=".xlsx" hidden>
+                            </div>
+                        </div>
+                        <div class="file-list" id="allowanceMasterFileList">
+                            <p class="no-files">No file uploaded yet</p>
+                        </div>
+                    </div>
+                </div>
+
+            </section>
+
+            <!-- ── Run Analysis button ───────────────────────────── -->
+            <div class="action-bar">
+                <button class="btn btn-primary btn-large" id="allowanceRunBtn" disabled>
+                    ▶ Run Analysis
+                </button>
+            </div>
+
+            <!-- ── Progress ──────────────────────────────────────── -->
+            <div class="progress-section" id="allowanceProgressSection" hidden>
+                <div class="progress-bar-container">
+                    <div class="progress-bar" id="allowanceProgressBar"></div>
+                </div>
+                <p class="progress-text" id="allowanceProgressText">Processing…</p>
+            </div>
+
+            <!-- ── Errors & Warnings ─────────────────────────────── -->
+            <div id="allowanceIssuesPanel" hidden>
+                <div class="jc-conflicts-panel" id="allowanceErrorsSection" hidden>
+                    <h3 id="allowanceErrorsTitle">🔴 Errors</h3>
+                    <ul id="allowanceErrorsList"></ul>
+                </div>
+                <div class="warnings-panel" id="allowanceWarningsSection" hidden>
+                    <h3>⚠ Warnings</h3>
+                    <ul id="allowanceWarningsList"></ul>
+                </div>
+            </div>
+
+            <!-- ── Results ───────────────────────────────────────── -->
+            <section class="results-section" id="allowanceResultsSection" hidden>
+                <h2>Results — <span id="allowanceResultsSummary" style="color:var(--primary);"></span></h2>
+
+                <!-- Results content populated by allowanceChecker.js -->
+                <div id="allowanceResultsBody"></div>
+
+                <div class="download-bar">
+                    <button class="btn btn-outline btn-large" id="allowanceResetBtn">
+                        <span>↺</span> New Analysis
+                    </button>
+                </div>
+            </section>
+
+        </div><!-- /panelAllowanceChecker -->
+
         </main>
 
         <footer>
@@ -367,10 +468,12 @@
     </div><!-- /page-right -->
 
     <script src="js/fileHandler.js"></script>
+    <script src="js/appData.js"></script>
     <script src="js/comparison.js"></script>
     <script src="js/excelExport.js"></script>
     <script src="js/siteIdJc.js"></script>
     <script src="js/pocTracking.js"></script>
+    <script src="js/allowanceChecker.js"></script>
     <script src="js/app.js"></script>
     <script>
         if ('serviceWorker' in navigator) {
