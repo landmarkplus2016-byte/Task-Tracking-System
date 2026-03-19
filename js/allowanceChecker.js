@@ -260,6 +260,36 @@ const AllowanceChecker = (() => {
     }
 
     /**
+     * Look up a name (from a Google Sheet) in a salary map.
+     *
+     * Strategy:
+     *   1. Exact normalized match: "Mostafa Ahmed Mohamed" → "mostafa ahmed mohamed"
+     *   2. Word-prefix match: sheet "mostafa ahmed" is a word-aligned prefix of
+     *      canonical "mostafa ahmed mohamed" → returns the canonical entry.
+     *      This handles sheets that only store the first two name parts.
+     *
+     * Returns the salary entry or null if no match.
+     */
+    function lookupSalary(salaryMap, rawName) {
+        const key = normName(rawName);
+        if (!key) return null;
+
+        // Pass 1: exact match
+        if (salaryMap.has(key)) return salaryMap.get(key);
+
+        // Pass 2: word-prefix match
+        // "mostafa ahmed" matches "mostafa ahmed mohamed" (canonical starts with key + space)
+        // Also handles the reverse: canonical "ali" matches sheet "ali hassan" (less common)
+        for (const [canonKey, entry] of salaryMap) {
+            if (canonKey.startsWith(key + ' ') || key.startsWith(canonKey + ' ')) {
+                return entry;
+            }
+        }
+
+        return null;
+    }
+
+    /**
      * Compute per-person allowance totals from the filtered rows.
      *
      * Names from Google Sheets are normalized and matched against the
@@ -305,7 +335,7 @@ const AllowanceChecker = (() => {
 
                 rowMemberCount++;
                 const normKey     = normName(rawName);
-                const sal         = teamSalaryMap.get(normKey);
+                const sal         = lookupSalary(teamSalaryMap, rawName);
                 const displayName = sal ? sal.name : rawName;
 
                 if (!personMap.has(normKey)) {
@@ -345,7 +375,7 @@ const AllowanceChecker = (() => {
                 rowMemberCount++;
                 const normKey = normName(drvRaw);
                 // Fall back to teamSalaryMap if driver is not in driver list
-                const sal         = driverSalaryMap.get(normKey) || teamSalaryMap.get(normKey);
+                const sal         = lookupSalary(driverSalaryMap, drvRaw) || lookupSalary(teamSalaryMap, drvRaw);
                 const displayName = sal ? sal.name : drvRaw;
 
                 if (!personMap.has(normKey)) {
@@ -367,7 +397,7 @@ const AllowanceChecker = (() => {
                     if (sal && sal.dailySalary > 0) {
                         person.vacationTotal += sal.dailySalary;
                         rowVacationTotal     += sal.dailySalary;
-                    } else if (!warnedNames.has(normKey)) {
+                    } else if (!sal && !warnedNames.has(normKey)) {
                         warnedNames.add(normKey);
                         calcWarnings.push(
                             `"${drvRaw}" not found in Driver Salaries — vacation allowance skipped.`

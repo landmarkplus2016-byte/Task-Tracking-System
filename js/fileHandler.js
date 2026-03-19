@@ -73,12 +73,14 @@ const FileHandler = (() => {
                 )) return i;
             }
             // Partial fallback: cell contains the hint (handles "Task ID#" etc.)
+            // Guard against empty strings: ''.includes('') is always true but
+            // empty cells are not a meaningful match.
             for (let i = 0; i < limit; i++) {
                 const row = rawData[i] || [];
                 if (row.some(c => {
                     if (c === null || c === undefined) return false;
                     const v = c.toString().trim().toLowerCase();
-                    return v.includes(target) || target.includes(v);
+                    return v.length > 0 && (v.includes(target) || target.includes(v));
                 })) return i;
             }
         }

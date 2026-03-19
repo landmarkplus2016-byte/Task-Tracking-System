@@ -90,13 +90,21 @@ const AppData = (() => {
 
     /**
      * Detect whether a raw row looks like a table header.
-     * Requires at least one cell containing "name" AND at least one
-     * cell containing "salary", "account", or "rate".
+     * Uses EXACT cell value matches only — data rows (person names, numbers,
+     * bank account codes) will never exactly equal these header keywords.
      */
+    const HEADER_NAME_TERMS = new Set([
+        'name', 'member name', 'member', 'employee', 'employee name',
+        'driver name', 'driver',
+    ]);
+    const HEADER_SALARY_TERMS = new Set([
+        'daily salary', 'salary', 'daily rate', 'rate',
+        'bank account', 'account number', 'account no', 'account', 'bank',
+    ]);
     function isHeaderCandidate(row) {
         const cells = row.map(c => (c || '').toString().toLowerCase().trim());
-        return cells.some(c => c === 'name' || c.endsWith('name') || c.startsWith('name')) &&
-               cells.some(c => c.includes('salary') || c.includes('account') || c.includes('rate'));
+        return cells.some(c => HEADER_NAME_TERMS.has(c)) &&
+               cells.some(c => HEADER_SALARY_TERMS.has(c));
     }
 
     /**
