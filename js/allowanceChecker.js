@@ -247,11 +247,20 @@ const AllowanceChecker = (() => {
      * Build a salary lookup Map keyed by normalized name.
      * Each entry: { dailySalary: number, bankAccount: string, name: string (canonical) }
      */
+    /**
+     * Parse a salary value that may be stored as a formatted string like
+     * "EGP 308" or "EGP 8,000".  Strips any non-numeric characters (letters,
+     * currency symbols, commas) before calling parseFloat.
+     */
+    function parseSalaryValue(str) {
+        return parseFloat((str || '').toString().replace(/[^\d.]/g, '')) || 0;
+    }
+
     function buildSalaryMap(salaryList) {
         const map = new Map();
         for (const s of salaryList) {
             map.set(normName(s.name), {
-                dailySalary: parseFloat(s.dailySalary) || 0,
+                dailySalary: parseSalaryValue(s.dailySalary),
                 bankAccount: s.bankAccount || '',
                 name:        s.name,   // canonical form from list.xlsx
             });
@@ -360,7 +369,7 @@ const AllowanceChecker = (() => {
                     if (sal && sal.dailySalary > 0) {
                         person.vacationTotal += sal.dailySalary;
                         rowVacationTotal     += sal.dailySalary;
-                    } else if (!warnedNames.has(normKey)) {
+                    } else if (!sal && !warnedNames.has(normKey)) {
                         warnedNames.add(normKey);
                         calcWarnings.push(
                             `"${rawName}" not found in Team Salaries — vacation allowance skipped.`

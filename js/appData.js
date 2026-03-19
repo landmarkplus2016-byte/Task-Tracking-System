@@ -116,7 +116,9 @@ const AppData = (() => {
     function parseSalaryTable(raw, headerIdx, endIdx) {
         const headers   = (raw[headerIdx] || []).map(h => (h || '').toString().trim());
         const nameIdx   = findColIdx(headers, ['name', 'member name', 'member', 'employee']);
-        const salaryIdx = findColIdx(headers, ['daily salary', 'daily rate', 'salary', 'rate']);
+        // 'salary/day' and 'salary per day' must come before 'salary' so the
+        // daily-rate column is preferred over the monthly-salary column.
+        const salaryIdx = findColIdx(headers, ['daily salary', 'salary/day', 'salary per day', 'daily rate', 'salary', 'rate']);
         const bankIdx   = findColIdx(headers, ['bank account', 'account number', 'account no', 'account', 'bank']);
 
         if (nameIdx === -1 || salaryIdx === -1) return [];
