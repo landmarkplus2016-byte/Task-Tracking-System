@@ -394,6 +394,135 @@ const AllowanceChecker = (() => {
         return errors;
     }
 
+    /* ── Excel export ────────────────────────────────────────── */
+
+    const TEAM_FIELDS = ['engineer', 'tech1', 'tech2', 'tech3'];
+
+    /** Split the people array into team members vs drivers. */
+    function categorizeMembers(filteredRows, people) {
+        const teamKeys   = new Set();
+        const driverKeys = new Set();
+
+        for (const row of filteredRows) {
+            for (const f of TEAM_FIELDS) {
+                const v = (row[f] || '').trim();
+                if (v) teamKeys.add(v.toLowerCase());
+            }
+            const d = (row.driver || '').trim();
+            if (d) driverKeys.add(d.toLowerCase());
+        }
+
+        // Team = anyone in engineer/tech fields
+        // Driver = only in driver field (not also a team member)
+        return {
+            team:    people.filter(p => teamKeys.has(p.name.toLowerCase())),
+            drivers: people.filter(p => driverKeys.has(p.name.toLowerCase()) &&
+                                        !teamKeys.has(p.name.toLowerCase())),
+        };
+    }
+
+    /** Apply bold + blue header style to a range of cells in a worksheet. */
+    function styleHeaderRow(ws, rowIdx, colCount) {
+        const hStyle = {
+            font: { bold: true, color: { rgb: 'FFFFFF' } },
+            fill: { fgColor: { rgb: '1A56DB' } },
+            alignment: { horizontal: 'center' },
+        };
+        for (let c = 0; c < colCount; c++) {
+            const addr = XLSX.utils.encode_cell({ r: rowIdx, c });
+            if (ws[addr]) ws[addr].s = hStyle;
+        }
+    }
+
+    /** Apply bold section-label style to a single cell. */
+    function styleSectionLabel(ws, rowIdx) {
+        const addr = XLSX.utils.encode_cell({ r: rowIdx, c: 0 });
+        if (ws[addr]) ws[addr].s = {
+            font: { bold: true, sz: 12, color: { rgb: '1A56DB' } },
+        };
+    }
+
+    function generateExcel() {
+        if (!state.results) return;
+
+        const { people, monthName, half, masterSheets } = state.results;
+        const allRows      = state.sheetRows;
+        const filteredRows = state.filteredRows;
+        const monthAbbr    = monthName.slice(0, 3);
+        const halfStr      = half === 'first' ? 'First' : 'Second';
+
+        const wb = XLSX.utils.book_new();
+
+        /* ── Sheet 1: Total Tracking ─────────────────────────── */
+        const trackingHeaders = [
+            'Month', 'Day', 'Month Half', 'Coordinator', 'Site', 'Area',
+            'Start Time', 'End Time', 'Project', 'Sub Project',
+            'Engineer', 'Tech-1', 'Tech-2', 'Tech-3', 'Driver',
+            'Allowance', 'Vacation Allowance', 'Work Details', 'JC',
+        ];
+        const trackingData = [
+            trackingHeaders,
+            ...allRows.map(r => [
+                r.month, r.day, r.monthHalf, r.coordinator, r.site, r.area,
+                r.startTime, r.endTime, r.project, r.subProject,
+                r.engineer, r.tech1, r.tech2, r.tech3, r.driver,
+                r.allowance, r.vacationAllowance, r.workDetails, r.jc,
+            ]),
+        ];
+        const trackingSheet = XLSX.utils.aoa_to_sheet(trackingData);
+        styleHeaderRow(trackingSheet, 0, trackingHeaders.length);
+        trackingSheet['!cols'] = [
+            { wch: 6 }, { wch: 5 }, { wch: 12 }, { wch: 22 }, { wch: 20 },
+            { wch: 14 }, { wch: 11 }, { wch: 11 }, { wch: 18 }, { wch: 18 },
+            { wch: 20 }, { wch: 20 }, { wch: 20 }, { wch: 20 }, { wch: 20 },
+            { wch: 11 }, { wch: 18 }, { wch: 30 }, { wch: 12 },
+        ];
+        XLSX.utils.book_append_sheet(wb, trackingSheet, 'Total Tracking');
+
+        /* ── Sheet 2: Allowance Amount ───────────────────────── */
+        const { team, drivers } = categorizeMembers(filteredRows, people);
+
+        const teamRows = team.map(p => [p.name, p.grandTotal, p.bankAccount]);
+        const drvRows  = drivers.map(p => [p.name, p.grandTotal]);
+
+        // Build as array-of-arrays so we control the layout precisely
+        const aoa = [];
+        const markers = {};   // { rowIdx → 'teamHeader' | 'drvHeader' | 'teamCols' | 'drvCols' }
+
+        // Team section
+        markers[aoa.length] = 'section';
+        aoa.push(['Team']);
+        markers[aoa.length] = 'cols3';
+        aoa.push(['Name', 'Total Amount', 'Bank Account #']);
+        teamRows.forEach(r => aoa.push(r));
+
+        // Gap
+        aoa.push([]);
+
+        // Driver section
+        markers[aoa.length] = 'section';
+        aoa.push(['Driver']);
+        markers[aoa.length] = 'cols2';
+        aoa.push(['Name', 'Amount']);
+        drvRows.forEach(r => aoa.push(r));
+
+        const allowanceSheet = XLSX.utils.aoa_to_sheet(aoa);
+
+        // Apply styles
+        Object.entries(markers).forEach(([ri, type]) => {
+            const rowIdx = parseInt(ri, 10);
+            if (type === 'section')  styleSectionLabel(allowanceSheet, rowIdx);
+            if (type === 'cols3')    styleHeaderRow(allowanceSheet, rowIdx, 3);
+            if (type === 'cols2')    styleHeaderRow(allowanceSheet, rowIdx, 2);
+        });
+
+        allowanceSheet['!cols'] = [{ wch: 24 }, { wch: 14 }, { wch: 22 }];
+        XLSX.utils.book_append_sheet(wb, allowanceSheet, 'Allowance Amount');
+
+        /* ── Download ────────────────────────────────────────── */
+        XLSX.writeFile(wb, `Allowance_Report_${monthAbbr}_${halfStr}.xlsx`);
+    }
+
     /* ── Month dropdown ──────────────────────────────────────── */
     function populateMonthDropdown() {
         const sel = $('allowanceMonth');
@@ -704,6 +833,7 @@ const AllowanceChecker = (() => {
         );
 
         $('allowanceRunBtn').addEventListener('click', runAnalysis);
+        $('allowanceDownloadBtn').addEventListener('click', generateExcel);
         $('allowanceResetBtn').addEventListener('click', reset);
     }
 
