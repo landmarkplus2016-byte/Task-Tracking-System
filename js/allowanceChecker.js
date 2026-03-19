@@ -238,8 +238,33 @@ const AllowanceChecker = (() => {
 
     const MEMBER_FIELDS = ['engineer', 'tech1', 'tech2', 'tech3', 'driver'];
 
+    /** Normalize a name for salary map lookups: lowercase, trim, collapse spaces. */
+    function normName(s) {
+        return (s || '').toString().toLowerCase().trim().replace(/\s+/g, ' ');
+    }
+
+    /**
+     * Build a salary lookup Map keyed by normalized name.
+     * Each entry: { dailySalary: number, bankAccount: string, name: string (canonical) }
+     */
+    function buildSalaryMap(salaryList) {
+        const map = new Map();
+        for (const s of salaryList) {
+            map.set(normName(s.name), {
+                dailySalary: parseFloat(s.dailySalary) || 0,
+                bankAccount: s.bankAccount || '',
+                name:        s.name,   // canonical form from list.xlsx
+            });
+        }
+        return map;
+    }
+
     /**
      * Compute per-person allowance totals from the filtered rows.
+     *
+     * Names from Google Sheets are normalized and matched against the
+     * team / driver salary maps from list.xlsx. When a match is found,
+     * the canonical name from list.xlsx is used in the output.
      *
      * Per row:
      *   memberCount       = non-empty fields among engineer/tech1-3/driver
@@ -256,69 +281,102 @@ const AllowanceChecker = (() => {
      * @returns {{ people: object[], grandTotal: number, calcWarnings: string[] }}
      */
     function computeAllowances(filteredRows) {
-        const salaries = AppData.getSalaries();   // [{ name, dailySalary, bankAccount }]
+        const teamSalaryMap   = buildSalaryMap(AppData.getSalaries());
+        const driverSalaryMap = buildSalaryMap(AppData.getDriverSalaries());
 
-        // Build salary lookup keyed by lowercase name
-        const salaryMap = new Map();
-        for (const s of salaries) {
-            salaryMap.set(s.name.toLowerCase().trim(), {
-                dailySalary: parseFloat(s.dailySalary) || 0,
-                bankAccount: s.bankAccount,
-            });
-        }
-
-        // name.toLowerCase() → accumulator object
+        // normalized name → accumulator object
         const personMap    = new Map();
         const calcWarnings = [];
         const warnedNames  = new Set();   // suppress duplicate warnings
         let   grandTotal   = 0;
 
+        const TEAM_FIELDS_LOCAL = ['engineer', 'tech1', 'tech2', 'tech3'];
+
         for (const row of filteredRows) {
-            // Collect the non-empty team members for this row
-            const members = MEMBER_FIELDS
-                .map(f => (row[f] || '').trim())
-                .filter(Boolean);
-
-            if (!members.length) continue;
-
             const allowancePerPerson = parseFloat(row.allowance) || 0;
             const hasVacation        = (row.vacationAllowance || '').trim() !== '';
             let   rowVacationTotal   = 0;
+            let   rowMemberCount     = 0;
 
-            for (const memberName of members) {
-                const key = memberName.toLowerCase();
+            /* ── Team fields (engineer / tech1-3) ───────────── */
+            for (const field of TEAM_FIELDS_LOCAL) {
+                const rawName = (row[field] || '').trim();
+                if (!rawName) continue;
 
-                // Initialise person entry on first encounter
-                if (!personMap.has(key)) {
-                    const sal = salaryMap.get(key);
-                    personMap.set(key, {
-                        name:           memberName,
+                rowMemberCount++;
+                const normKey     = normName(rawName);
+                const sal         = teamSalaryMap.get(normKey);
+                const displayName = sal ? sal.name : rawName;
+
+                if (!personMap.has(normKey)) {
+                    personMap.set(normKey, {
+                        name:           displayName,
                         rows:           0,
                         allowanceTotal: 0,
                         vacationTotal:  0,
                         bankAccount:    sal ? sal.bankAccount : '',
+                        isTeam:         true,
                     });
+                } else {
+                    // If this person was first seen as a driver, upgrade to team
+                    personMap.get(normKey).isTeam = true;
                 }
 
-                const person = personMap.get(key);
+                const person = personMap.get(normKey);
                 person.rows++;
                 person.allowanceTotal += allowancePerPerson;
 
                 if (hasVacation) {
-                    const sal = salaryMap.get(key);
                     if (sal && sal.dailySalary > 0) {
                         person.vacationTotal += sal.dailySalary;
                         rowVacationTotal     += sal.dailySalary;
-                    } else if (!sal && !warnedNames.has(key)) {
-                        warnedNames.add(key);
+                    } else if (!warnedNames.has(normKey)) {
+                        warnedNames.add(normKey);
                         calcWarnings.push(
-                            `"${memberName}" not found in Salaries data — vacation allowance skipped for this person.`
+                            `"${rawName}" not found in Team Salaries — vacation allowance skipped.`
                         );
                     }
                 }
             }
 
-            grandTotal += (allowancePerPerson * members.length) + rowVacationTotal;
+            /* ── Driver field ────────────────────────────────── */
+            const drvRaw = (row.driver || '').trim();
+            if (drvRaw) {
+                rowMemberCount++;
+                const normKey = normName(drvRaw);
+                // Fall back to teamSalaryMap if driver is not in driver list
+                const sal         = driverSalaryMap.get(normKey) || teamSalaryMap.get(normKey);
+                const displayName = sal ? sal.name : drvRaw;
+
+                if (!personMap.has(normKey)) {
+                    personMap.set(normKey, {
+                        name:           displayName,
+                        rows:           0,
+                        allowanceTotal: 0,
+                        vacationTotal:  0,
+                        bankAccount:    sal ? sal.bankAccount : '',
+                        isTeam:         false,   // driver unless also in a team field
+                    });
+                }
+
+                const person = personMap.get(normKey);
+                person.rows++;
+                person.allowanceTotal += allowancePerPerson;
+
+                if (hasVacation) {
+                    if (sal && sal.dailySalary > 0) {
+                        person.vacationTotal += sal.dailySalary;
+                        rowVacationTotal     += sal.dailySalary;
+                    } else if (!warnedNames.has(normKey)) {
+                        warnedNames.add(normKey);
+                        calcWarnings.push(
+                            `"${drvRaw}" not found in Driver Salaries — vacation allowance skipped.`
+                        );
+                    }
+                }
+            }
+
+            grandTotal += (allowancePerPerson * rowMemberCount) + rowVacationTotal;
         }
 
         const people = Array.from(personMap.values())
@@ -399,26 +457,11 @@ const AllowanceChecker = (() => {
 
     const TEAM_FIELDS = ['engineer', 'tech1', 'tech2', 'tech3'];
 
-    /** Split the people array into team members vs drivers. */
-    function categorizeMembers(filteredRows, people) {
-        const teamKeys   = new Set();
-        const driverKeys = new Set();
-
-        for (const row of filteredRows) {
-            for (const f of TEAM_FIELDS) {
-                const v = (row[f] || '').trim();
-                if (v) teamKeys.add(v.toLowerCase());
-            }
-            const d = (row.driver || '').trim();
-            if (d) driverKeys.add(d.toLowerCase());
-        }
-
-        // Team = anyone in engineer/tech fields
-        // Driver = only in driver field (not also a team member)
+    /** Split the people array into team members vs drivers using the isTeam flag set during computeAllowances(). */
+    function categorizeMembers(_filteredRows, people) {
         return {
-            team:    people.filter(p => teamKeys.has(p.name.toLowerCase())),
-            drivers: people.filter(p => driverKeys.has(p.name.toLowerCase()) &&
-                                        !teamKeys.has(p.name.toLowerCase())),
+            team:    people.filter(p => p.isTeam),
+            drivers: people.filter(p => !p.isTeam),
         };
     }
 

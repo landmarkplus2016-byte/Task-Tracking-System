@@ -1,12 +1,14 @@
 /**
  * appData.js
  * ──────────────────────────────────────────────────────────────
- * Loads ./data/list.xlsx on startup and exposes its contents to
+ * Loads ./list.xlsx on startup and exposes its contents to
  * other modules.
  *
  * Reads two sheets:
  *   'Google Sheets URLs'  → [{ name, url }]
- *   'Salaries'            → [{ name, dailySalary, bankAccount }]
+ *   'Salaries'            → two tables detected automatically:
+ *                           team    → [{ name, dailySalary, bankAccount }]
+ *                           drivers → [{ name, dailySalary, bankAccount }]
  *
  * If the file is missing or a tab is not found / unparseable,
  * an error banner (#appDataError) is shown in the UI.
@@ -22,8 +24,8 @@ const AppData = (() => {
     const SALARIES_TAB = 'Salaries';
 
     const state = {
-        sheetUrls: [],   // [{ name, url }]
-        salaries:  [],   // [{ name, dailySalary, bankAccount }]
+        sheetUrls: [],              // [{ name, url }]
+        salaries:  { team: [], drivers: [] },
     };
 
     /* ── Column fuzzy-match ──────────────────────────────────── */
@@ -86,31 +88,70 @@ const AppData = (() => {
             .filter(r => r.name || r.url);
     }
 
-    function parseSalariesTab(ws) {
-        const { headers, rows } = parseRawSheet(ws);
+    /**
+     * Detect whether a raw row looks like a table header.
+     * Requires at least one cell containing "name" AND at least one
+     * cell containing "salary", "account", or "rate".
+     */
+    function isHeaderCandidate(row) {
+        const cells = row.map(c => (c || '').toString().toLowerCase().trim());
+        return cells.some(c => c === 'name' || c.endsWith('name') || c.startsWith('name')) &&
+               cells.some(c => c.includes('salary') || c.includes('account') || c.includes('rate'));
+    }
 
+    /**
+     * Parse one contiguous table block from `raw` (a 2-D array).
+     * headerIdx = index of the header row in `raw`.
+     * endIdx    = index where this table ends (exclusive), or undefined for EOF.
+     * bankAccount column is optional (bankIdx may be -1 → stored as '').
+     */
+    function parseSalaryTable(raw, headerIdx, endIdx) {
+        const headers   = (raw[headerIdx] || []).map(h => (h || '').toString().trim());
         const nameIdx   = findColIdx(headers, ['name', 'member name', 'member', 'employee']);
         const salaryIdx = findColIdx(headers, ['daily salary', 'daily rate', 'salary', 'rate']);
         const bankIdx   = findColIdx(headers, ['bank account', 'account number', 'account no', 'account', 'bank']);
 
-        const missing = [];
-        if (nameIdx   === -1) missing.push('Name');
-        if (salaryIdx === -1) missing.push('Daily Salary');
-        if (bankIdx   === -1) missing.push('Bank Account');
-        if (missing.length) {
-            throw new Error(
-                `'${SALARIES_TAB}' tab: could not locate column(s): ${missing.join(', ')}.`
-            );
-        }
+        if (nameIdx === -1 || salaryIdx === -1) return [];
 
-        return rows
-            .filter(r => r[nameIdx])
+        return raw
+            .slice(headerIdx + 1, endIdx)
+            .filter(r => r.some(c => c !== '' && c != null))
             .map(r => ({
                 name:        (r[nameIdx]   || '').toString().trim(),
                 dailySalary: (r[salaryIdx] || '').toString().trim(),
-                bankAccount: (r[bankIdx]   || '').toString().trim(),
+                bankAccount: bankIdx !== -1 ? (r[bankIdx] || '').toString().trim() : '',
             }))
             .filter(r => r.name);
+    }
+
+    function parseSalariesTab(ws) {
+        const raw = XLSX.utils.sheet_to_json(ws, {
+            header: 1, defval: '', raw: false, dateNF: 'yyyy-mm-dd',
+        });
+        if (!raw.length) return { team: [], drivers: [] };
+
+        // Find all rows that look like table headers
+        const headerIndices = raw.reduce((acc, row, i) => {
+            if (isHeaderCandidate(row)) acc.push(i);
+            return acc;
+        }, []);
+
+        if (!headerIndices.length) {
+            throw new Error(
+                `'${SALARIES_TAB}' tab: could not detect any header rows. ` +
+                `Each table must have a "Name" column and a "Salary"/"Account"/"Rate" column.`
+            );
+        }
+
+        const teamHeaderIdx   = headerIndices[0];
+        const driverHeaderIdx = headerIndices.length >= 2 ? headerIndices[1] : null;
+
+        const team    = parseSalaryTable(raw, teamHeaderIdx, driverHeaderIdx ?? undefined);
+        const drivers = driverHeaderIdx !== null
+            ? parseSalaryTable(raw, driverHeaderIdx, undefined)
+            : [];
+
+        return { team, drivers };
     }
 
     /* ── Error banner ────────────────────────────────────────── */
@@ -164,7 +205,11 @@ const AppData = (() => {
             errors.push(`Tab '${SALARIES_TAB}' not found in list.xlsx.`);
         } else {
             try {
-                state.salaries = parseSalariesTab(salariesWs);
+                const parsed = parseSalariesTab(salariesWs);
+                state.salaries = parsed;
+                console.log(
+                    `Salaries loaded — team: ${parsed.team.length}, drivers: ${parsed.drivers.length}`
+                );
             } catch (err) {
                 errors.push(err.message);
             }
@@ -176,8 +221,9 @@ const AppData = (() => {
     /* ── Public API ──────────────────────────────────────────── */
     return {
         init,
-        getSheetUrls: () => state.sheetUrls,
-        getSalaries:  () => state.salaries,
+        getSheetUrls:      () => state.sheetUrls,
+        getSalaries:       () => state.salaries.team,     // [{ name, dailySalary, bankAccount }]
+        getDriverSalaries: () => state.salaries.drivers,  // [{ name, dailySalary, bankAccount }]
     };
 
 })();

@@ -3,7 +3,7 @@
  * Caches static assets for offline use.
  */
 
-const CACHE_NAME = 'task-tracker-v1.4';
+const CACHE_NAME = 'task-tracker-v1.5';
 
 const STATIC_ASSETS = [
     './',
