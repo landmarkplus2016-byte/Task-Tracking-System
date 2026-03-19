@@ -401,7 +401,7 @@ const AllowanceChecker = (() => {
         MONTHS.forEach((name, i) => {
             const opt = document.createElement('option');
             opt.value = i + 1;
-            opt.textContent = name;
+            opt.textContent = name.slice(0, 3);
             if (i === now.getMonth()) opt.selected = true;
             sel.appendChild(opt);
         });
