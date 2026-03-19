@@ -487,7 +487,7 @@ const AllowanceChecker = (() => {
     }
 
     /* ── Results display ─────────────────────────────────────── */
-    function showResults(monthName, halfLabel, sourceCounts, totalRows, filteredCount, people, grandTotal) {
+    function showResults(monthName, halfLabel, sourceCounts, filteredSourceCounts, totalRows, filteredCount, people, grandTotal) {
         $('allowanceResultsSummary').textContent = `${monthName} — ${halfLabel}`;
 
         /* ── Stat cards ─────────────────────────────────────── */
@@ -560,19 +560,29 @@ const AllowanceChecker = (() => {
         `;
 
         /* ── Source breakdown table ──────────────────────────── */
-        const sourceRows = Array.from(sourceCounts.entries()).map(([name, count]) => `
-            <tr>
-                <td>${esc(name)}</td>
-                <td class="allowance-td-num ${count === 0 ? 'allowance-count--zero' : ''}">${count}</td>
-            </tr>
-        `).join('');
+        const sourceRows = Array.from(sourceCounts.entries()).map(([name, loaded]) => {
+            const matched = filteredSourceCounts.get(name) || 0;
+            return `
+                <tr>
+                    <td>${esc(name)}</td>
+                    <td class="allowance-td-num">${loaded}</td>
+                    <td class="allowance-td-num ${matched === 0 ? 'allowance-count--zero' : 'allowance-count'}">${matched}</td>
+                </tr>
+            `;
+        }).join('');
 
         const sourceTable = `
             <h3 class="allowance-section-title">Data Sources</h3>
             <div class="allowance-table-wrap">
                 <table class="allowance-table">
-                    <thead><tr><th>Coordinator / Sheet</th><th class="allowance-th-num">Rows loaded</th></tr></thead>
-                    <tbody>${sourceRows || '<tr><td colspan="2" class="allowance-empty">No data</td></tr>'}</tbody>
+                    <thead>
+                        <tr>
+                            <th>Coordinator / Sheet</th>
+                            <th class="allowance-th-num">Rows loaded</th>
+                            <th class="allowance-th-num">Matched</th>
+                        </tr>
+                    </thead>
+                    <tbody>${sourceRows || '<tr><td colspan="3" class="allowance-empty">No data</td></tr>'}</tbody>
                 </table>
             </div>
         `;
@@ -627,6 +637,13 @@ const AllowanceChecker = (() => {
             const filteredRows = filterRows(rows, monthVal, monthName, half);
             state.filteredRows = filteredRows;
 
+            // Per-source filtered counts (for the Data Sources table)
+            const filteredSourceCounts = new Map();
+            for (const row of filteredRows) {
+                const src = row.__source__ || '(unknown)';
+                filteredSourceCounts.set(src, (filteredSourceCounts.get(src) || 0) + 1);
+            }
+
             if (rows.length > 0 && filteredRows.length === 0) {
                 warnings.push(
                     `No rows matched "${monthName} — ${halfLabel}". ` +
@@ -651,7 +668,7 @@ const AllowanceChecker = (() => {
             hideProgress();
 
             state.results = { monthVal, monthName, half, halfLabel, masterSheets, people, grandTotal };
-            showResults(monthName, halfLabel, sourceCounts, rows.length, filteredRows.length, people, grandTotal);
+            showResults(monthName, halfLabel, sourceCounts, filteredSourceCounts, rows.length, filteredRows.length, people, grandTotal);
             showIssues(errors, warnings);
 
         } catch (err) {
