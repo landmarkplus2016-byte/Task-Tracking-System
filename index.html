@@ -60,6 +60,12 @@
             </button>
         </nav>
 
+        <div class="sidebar-footer">
+            <button class="sidebar-reset-btn" id="globalResetBtn">
+                ↺ New Analysis
+            </button>
+        </div>
+
     </aside>
 
     <!-- ── Right Panel ───────────────────────────────────────────── -->
@@ -181,10 +187,8 @@
                     <button class="btn btn-success btn-large" id="downloadBtn">
                         <span>⬇</span> Download Results Excel
                     </button>
-                    <button class="btn btn-outline btn-large" id="resetTrackingBtn">
-                        <span>↺</span> New Analysis
-                    </button>
                 </div>
+                <button id="resetTrackingBtn" hidden></button>
             </section>
 
         </div><!-- /panelTracking -->
@@ -360,10 +364,8 @@
                     <button class="btn btn-success btn-large" id="pocDownloadBtn">
                         <span>⬇</span> Download Results Excel
                     </button>
-                    <button class="btn btn-outline btn-large" id="resetPocBtn">
-                        <span>↺</span> New Analysis
-                    </button>
                 </div>
+                <button id="resetPocBtn" hidden></button>
             </section>
 
         </div><!-- /panelPocTracking -->
@@ -454,10 +456,8 @@
                     <button class="btn btn-success btn-large" id="allowanceDownloadBtn">
                         <span>⬇</span> Download Output
                     </button>
-                    <button class="btn btn-outline btn-large" id="allowanceResetBtn">
-                        <span>↺</span> New Analysis
-                    </button>
                 </div>
+                <button id="allowanceResetBtn" hidden></button>
             </section>
 
         </div><!-- /panelAllowanceChecker -->

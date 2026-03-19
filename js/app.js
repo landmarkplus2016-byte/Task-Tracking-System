@@ -503,6 +503,14 @@
 
     $('resetTrackingBtn').addEventListener('click', resetTracking);
 
+    /* ── Global "New Analysis" sidebar button ─────────────────── */
+    // Resets every tab at once so the user starts completely fresh.
+    $('globalResetBtn').addEventListener('click', () => {
+        $('resetTrackingBtn').click();
+        $('resetPocBtn').click();
+        $('allowanceResetBtn').click();
+    });
+
     /* ── Initialise ───────────────────────────────────────────── */
     initTabs();
     AppData.init();

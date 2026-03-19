@@ -109,6 +109,32 @@ body {
     flex: 1;
 }
 
+.sidebar-footer {
+    padding: 14px 16px;
+    border-top: 1px solid rgba(255, 255, 255, .1);
+}
+
+.sidebar-reset-btn {
+    width: 100%;
+    padding: 10px 12px;
+    background: rgba(255, 255, 255, .08);
+    color: rgba(255, 255, 255, .75);
+    border: 1px solid rgba(255, 255, 255, .15);
+    border-radius: 8px;
+    cursor: pointer;
+    font-size: .85rem;
+    font-weight: 500;
+    letter-spacing: .02em;
+    transition: background .18s, color .18s, border-color .18s;
+    text-align: center;
+}
+
+.sidebar-reset-btn:hover {
+    background: rgba(255, 255, 255, .16);
+    color: #ffffff;
+    border-color: rgba(255, 255, 255, .3);
+}
+
 /* ── Nav Buttons ───────────────────────────────────────────── */
 .tab-btn {
     display: flex;
