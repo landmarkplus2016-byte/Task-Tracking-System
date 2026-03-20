@@ -416,13 +416,6 @@
 
             </section>
 
-            <!-- ── Run Analysis button ───────────────────────────── -->
-            <div class="action-bar">
-                <button class="btn btn-primary btn-large" id="allowanceRunBtn" disabled>
-                    ▶ Run Analysis
-                </button>
-            </div>
-
             <!-- ── Progress ──────────────────────────────────────── -->
             <div class="progress-section" id="allowanceProgressSection" hidden>
                 <div class="progress-bar-container">
@@ -431,15 +424,23 @@
                 <p class="progress-text" id="allowanceProgressText">Processing…</p>
             </div>
 
-            <!-- ── Errors & Warnings ─────────────────────────────── -->
+            <!-- ── Issues panels ─────────────────────────────────── -->
             <div id="allowanceIssuesPanel" hidden>
-                <div class="jc-conflicts-panel" id="allowanceErrorsSection" hidden>
-                    <h3 id="allowanceErrorsTitle">🔴 Errors</h3>
-                    <ul id="allowanceErrorsList"></ul>
+                <div class="jc-conflicts-panel" id="allowanceRepeatedSection" hidden>
+                    <h3>🔄 Repeated Names</h3>
+                    <ul id="allowanceRepeatedList"></ul>
+                </div>
+                <div class="jc-conflicts-panel" id="allowanceMissingNamesSection" hidden>
+                    <h3>❌ Missing Names</h3>
+                    <ul id="allowanceMissingNamesList"></ul>
                 </div>
                 <div class="warnings-panel" id="allowanceWarningsSection" hidden>
-                    <h3>⚠ Warnings</h3>
+                    <h3>⚠ Missing Job Codes</h3>
                     <ul id="allowanceWarningsList"></ul>
+                </div>
+                <div class="jc-conflicts-panel" id="allowanceErrorsSection" hidden>
+                    <h3>🔴 Issues</h3>
+                    <ul id="allowanceErrorsList"></ul>
                 </div>
             </div>
 

@@ -535,7 +535,7 @@ const AllowanceChecker = (() => {
     function generateExcel() {
         if (!state.results) return;
 
-        const { people, monthName, half, masterSheets } = state.results;
+        const { people, monthName, half, masterSheets, grandTotal } = state.results;
         const allRows      = state.sheetRows;
         const filteredRows = state.filteredRows;
         const monthAbbr    = monthName.slice(0, 3);
@@ -551,8 +551,16 @@ const AllowanceChecker = (() => {
             'Engineer', 'Tech-1', 'Tech-2', 'Tech-3', 'Driver',
             'Allowance', 'Vacation Allowance', 'Work Details', 'JC',
         ];
+
+        // Row 1: Total Allowance summary at columns I & J (indices 8 & 9)
+        const summaryRow = new Array(trackingHeaders.length).fill('');
+        summaryRow[8] = 'Total Allowance';
+        summaryRow[9] = grandTotal;
+
         const trackingData = [
-            trackingHeaders,
+            summaryRow,                                    // row 1 — summary
+            new Array(trackingHeaders.length).fill(''),    // row 2 — empty spacer
+            trackingHeaders,                               // row 3 — headers
             ...filteredRows.map(r => [
                 r.month, r.day, r.monthHalf, r.coordinator, r.site, r.area,
                 r.startTime, r.endTime, r.project, r.subProject,
@@ -561,13 +569,28 @@ const AllowanceChecker = (() => {
             ]),
         ];
         const trackingSheet = XLSX.utils.aoa_to_sheet(trackingData);
-        styleHeaderRow(trackingSheet, 0, trackingHeaders.length);
+
+        // Style Total Allowance cells — green (#00B050) background, white bold text
+        const totalStyle = {
+            font:      { bold: true, color: { rgb: 'FFFFFF' } },
+            fill:      { fgColor: { rgb: '00B050' } },
+            alignment: { horizontal: 'center', vertical: 'center' },
+        };
+        ['I1', 'J1'].forEach(addr => {
+            if (trackingSheet[addr]) trackingSheet[addr].s = totalStyle;
+        });
+
+        // Headers are now at row index 2 (0-based)
+        styleHeaderRow(trackingSheet, 2, trackingHeaders.length);
+
         trackingSheet['!cols'] = [
             { wch: 6 }, { wch: 5 }, { wch: 12 }, { wch: 22 }, { wch: 20 },
             { wch: 14 }, { wch: 11 }, { wch: 11 }, { wch: 18 }, { wch: 18 },
             { wch: 20 }, { wch: 20 }, { wch: 20 }, { wch: 20 }, { wch: 20 },
             { wch: 11 }, { wch: 18 }, { wch: 30 }, { wch: 12 },
         ];
+        // Freeze pane below the header row (row 3)
+        trackingSheet['!freeze'] = { xSplit: 0, ySplit: 3 };
         XLSX.utils.book_append_sheet(wb, trackingSheet, trackingTabName);
 
         /* ── Sheet 2: Allowance Amount ───────────────────────── */
@@ -685,12 +708,10 @@ const AllowanceChecker = (() => {
     function renderMasterFile() {
         const listEl   = $('allowanceMasterFileList');
         const dropZone = $('allowanceMasterDropZone');
-        const runBtn   = $('allowanceRunBtn');
 
         if (!state.masterFile) {
             listEl.innerHTML = '<p class="no-files">No file uploaded yet</p>';
             dropZone.classList.remove('has-files');
-            runBtn.disabled = true;
             return;
         }
 
@@ -709,9 +730,10 @@ const AllowanceChecker = (() => {
         $('allowanceRemoveMasterBtn').addEventListener('click', () => {
             state.masterFile = null;
             renderMasterFile();
+            $('allowanceResultsSection').hidden = true;
+            hideProgress();
+            clearIssues();
         });
-
-        runBtn.disabled = false;
     }
 
     /* ── Progress ────────────────────────────────────────────── */
@@ -730,34 +752,52 @@ const AllowanceChecker = (() => {
     }
 
     /* ── Issues panel ────────────────────────────────────────── */
-    function showIssues(errors, warnings) {
-        const panel       = $('allowanceIssuesPanel');
-        const errSection  = $('allowanceErrorsSection');
-        const warnSection = $('allowanceWarningsSection');
+    /**
+     * @param {string[]} repeatedErrors  Pre-HTML strings from checkRepetitions()
+     * @param {string[]} missingNames    Plain-text strings from computeAllowances() calcErrors
+     * @param {string[]} jcWarnings      Plain-text: missing SiteID-JC combo messages
+     * @param {string[]} generalIssues   Plain-text: fetch failures, count mismatches, etc.
+     */
+    function showIssues(repeatedErrors, missingNames, jcWarnings, generalIssues) {
+        const panel = $('allowanceIssuesPanel');
 
-        if (errors.length) {
-            // Error items are pre-formatted HTML — individual user-data values
-            // are already escaped at the point of construction.
-            $('allowanceErrorsList').innerHTML = errors.map(e => `<li>${e}</li>`).join('');
-            errSection.hidden = false;
+        if (repeatedErrors.length) {
+            $('allowanceRepeatedList').innerHTML = repeatedErrors.map(e => `<li>${e}</li>`).join('');
+            $('allowanceRepeatedSection').hidden = false;
         } else {
-            errSection.hidden = true;
+            $('allowanceRepeatedSection').hidden = true;
         }
 
-        if (warnings.length) {
-            $('allowanceWarningsList').innerHTML = warnings.map(w => `<li>${esc(w)}</li>`).join('');
-            warnSection.hidden = false;
+        if (missingNames.length) {
+            $('allowanceMissingNamesList').innerHTML = missingNames.map(e => `<li>${esc(e)}</li>`).join('');
+            $('allowanceMissingNamesSection').hidden = false;
         } else {
-            warnSection.hidden = true;
+            $('allowanceMissingNamesSection').hidden = true;
         }
 
-        panel.hidden = !(errors.length || warnings.length);
+        if (jcWarnings.length) {
+            $('allowanceWarningsList').innerHTML = jcWarnings.map(w => `<li>${esc(w)}</li>`).join('');
+            $('allowanceWarningsSection').hidden = false;
+        } else {
+            $('allowanceWarningsSection').hidden = true;
+        }
+
+        if (generalIssues.length) {
+            $('allowanceErrorsList').innerHTML = generalIssues.map(e => `<li>${esc(e)}</li>`).join('');
+            $('allowanceErrorsSection').hidden = false;
+        } else {
+            $('allowanceErrorsSection').hidden = true;
+        }
+
+        panel.hidden = !(repeatedErrors.length || missingNames.length || jcWarnings.length || generalIssues.length);
     }
 
     function clearIssues() {
-        $('allowanceIssuesPanel').hidden     = true;
-        $('allowanceErrorsSection').hidden   = true;
-        $('allowanceWarningsSection').hidden = true;
+        $('allowanceIssuesPanel').hidden         = true;
+        $('allowanceRepeatedSection').hidden     = true;
+        $('allowanceMissingNamesSection').hidden = true;
+        $('allowanceWarningsSection').hidden     = true;
+        $('allowanceErrorsSection').hidden       = true;
     }
 
     /* ── Results display ─────────────────────────────────────── */
@@ -880,8 +920,11 @@ const AllowanceChecker = (() => {
         clearIssues();
         showProgress();
 
-        const warnings = [];
-        const errors   = [];
+        // Separated issue buckets
+        const generalIssues  = [];   // fetch failures, count mismatches, master errors
+        const jcWarnings     = [];   // missing SiteID-JC combos
+        let   missingNames   = [];   // names not in salary list
+        let   repeatedErrors = [];   // same person on same day in multiple rows
 
         try {
             /* ── Step 1: Read master file ────────────────────── */
@@ -894,7 +937,7 @@ const AllowanceChecker = (() => {
                 parseMasterTracking(masterSheets);
 
             if (masterError) {
-                warnings.push(masterError);
+                generalIssues.push(masterError);
             } else {
                 state.masterJcSet = jcSet;
                 console.log(`Master tracking: tab "${tabName}", column "${colName}", ${jcSet.size} combos`);
@@ -903,8 +946,8 @@ const AllowanceChecker = (() => {
             /* ── Step 2: Fetch coordinator Google Sheets ─────── */
             setProgress(10, 'Fetching coordinator sheets…');
 
-            const urlList  = AppData.getSheetUrls();
-            const total    = urlList.length;
+            const urlList = AppData.getSheetUrls();
+            const total   = urlList.length;
 
             const { rows, warnings: fetchWarnings, sourceCounts } =
                 await fetchGoogleSheets((stepIdx, stepTotal, sheetName) => {
@@ -914,7 +957,7 @@ const AllowanceChecker = (() => {
                     setProgress(pct, `Fetching ${stepIdx + 1} / ${stepTotal}: ${sheetName}…`);
                 });
 
-            warnings.push(...fetchWarnings);
+            generalIssues.push(...fetchWarnings);
             state.sheetRows = rows;
 
             /* ── Step 3: Filter by month & half ─────────────── */
@@ -931,7 +974,7 @@ const AllowanceChecker = (() => {
             }
 
             if (rows.length > 0 && filteredRows.length === 0) {
-                warnings.push(
+                generalIssues.push(
                     `No rows matched "${monthName} — ${halfLabel}". ` +
                     `Verify that the Month column uses a 3-letter abbreviation (e.g. "Jan", "Feb") ` +
                     `and Month Half uses "First" or "Second".`
@@ -941,19 +984,6 @@ const AllowanceChecker = (() => {
             /* ── Step 3b: Compare SiteID-JC combos against master ── */
             if (jcSet.size > 0 && filteredRows.length > 0) {
                 setProgress(90, 'Comparing SiteID-JC combos against master tracking…');
-
-                // Each coordinator row can have multiple sites AND multiple job codes
-                // separated by "/", e.g.:
-                //   Site:  "CABH317/CABH338/CABH337"
-                //   JC:    "MK22/MK23/MK24"
-                //
-                // Pairs are positional: CABH317-MK22, CABH338-MK23, CABH337-MK24.
-                // The master "SiteID-JC" column stores these exact combinations.
-                //
-                // Rules:
-                //   • If site count ≠ JC count → error (data problem in the sheet)
-                //   • For each pair, check the combo against the master jcSet
-                //   • Missing combos → warning
 
                 const missingCombos = new Map();  // lowercase combo → display string
 
@@ -965,19 +995,18 @@ const AllowanceChecker = (() => {
                     const sites = siteRaw.split('/').map(s => s.trim()).filter(Boolean);
                     const jcs   = jcRaw.split('/').map(s => s.trim()).filter(Boolean);
 
-                    // Count mismatch = error (shown in red)
+                    // Count mismatch → general issues (data problem in the sheet)
                     if (sites.length !== jcs.length) {
                         const label = [row.__source__, row.day && `Day ${row.day}`]
                             .filter(Boolean).join(', ');
-                        errors.push(
-                            `Site/JC count mismatch${label ? ` (${esc(label)})` : ''}: ` +
-                            `${sites.length} site(s) [${esc(siteRaw)}] but ` +
-                            `${jcs.length} job code(s) [${esc(jcRaw)}]`
+                        generalIssues.push(
+                            `Site/JC count mismatch${label ? ` (${label})` : ''}: ` +
+                            `${sites.length} site(s) [${siteRaw}] but ` +
+                            `${jcs.length} job code(s) [${jcRaw}]`
                         );
                         continue;
                     }
 
-                    // Check each paired combo
                     for (let i = 0; i < sites.length; i++) {
                         const combo      = `${sites[i]}-${jcs[i]}`;
                         const comboLower = combo.toLowerCase();
@@ -989,7 +1018,7 @@ const AllowanceChecker = (() => {
 
                 if (missingCombos.size > 0) {
                     const list = [...missingCombos.values()].sort().join(', ');
-                    warnings.push(
+                    jcWarnings.push(
                         `${missingCombos.size} SiteID-JC combo(s) not found in master tracking ` +
                         `(tab: "${tabName}", column: "${colName}"): ${list}`
                     );
@@ -1000,26 +1029,25 @@ const AllowanceChecker = (() => {
             setProgress(92, 'Computing allowances…');
 
             const { people, grandTotal, calcWarnings, calcErrors } = computeAllowances(filteredRows);
-            warnings.push(...calcWarnings);
-            errors.push(...calcErrors.map(e => esc(e)));
+            generalIssues.push(...calcWarnings);
+            missingNames = calcErrors;   // plain-text strings, escaped in showIssues
 
             /* ── Step 5: Repetition check ────────────────────── */
             setProgress(97, 'Checking for repetitions…');
 
-            const repErrors = checkRepetitions(filteredRows);
-            errors.push(...repErrors);
+            repeatedErrors = checkRepetitions(filteredRows);   // pre-HTML strings
 
             setProgress(100, 'Done!');
             hideProgress();
 
             state.results = { monthVal, monthName, half, halfLabel, masterSheets, people, grandTotal };
             showResults(monthName, halfLabel, sourceCounts, filteredSourceCounts, rows.length, filteredRows.length, people, grandTotal);
-            showIssues(errors, warnings);
+            showIssues(repeatedErrors, missingNames, jcWarnings, generalIssues);
 
         } catch (err) {
             hideProgress();
-            errors.push(esc(err.message));
-            showIssues(errors, warnings);
+            generalIssues.push(err.message);
+            showIssues(repeatedErrors, missingNames, jcWarnings, generalIssues);
         }
     }
 
@@ -1045,11 +1073,14 @@ const AllowanceChecker = (() => {
         FileHandler.setupDropZone(
             $('allowanceMasterDropZone'),
             $('allowanceMasterInput'),
-            (files) => { state.masterFile = files[0]; renderMasterFile(); },
+            (files) => {
+                state.masterFile = files[0];
+                renderMasterFile();
+                runAnalysis();
+            },
             false
         );
 
-        $('allowanceRunBtn').addEventListener('click', runAnalysis);
         $('allowanceDownloadBtn').addEventListener('click', generateExcel);
     }
 
