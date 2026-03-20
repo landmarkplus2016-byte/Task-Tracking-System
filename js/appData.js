@@ -134,32 +134,46 @@ const AppData = (() => {
             .filter(r => r.name);
     }
 
+    const DRIVER_COL_TERMS = new Set(['driver name', 'driver']);
+
     function parseSalariesTab(ws) {
         const raw = XLSX.utils.sheet_to_json(ws, {
             header: 1, defval: '', raw: false, dateNF: 'yyyy-mm-dd',
         });
         if (!raw.length) return { team: [], drivers: [] };
 
-        // Find all rows that look like table headers
-        const headerIndices = raw.reduce((acc, row, i) => {
-            if (isHeaderCandidate(row)) acc.push(i);
-            return acc;
-        }, []);
-
-        if (!headerIndices.length) {
+        // Find the main header row (must have both a name col and a salary/account col)
+        const teamHeaderIdx = raw.findIndex(isHeaderCandidate);
+        if (teamHeaderIdx === -1) {
             throw new Error(
-                `'${SALARIES_TAB}' tab: could not detect any header rows. ` +
-                `Each table must have a "Name" column and a "Salary"/"Account"/"Rate" column.`
+                `'${SALARIES_TAB}' tab: could not detect header row. ` +
+                `The team table must have a "Name" column and a "Salary"/"Account"/"Rate" column.`
             );
         }
 
-        const teamHeaderIdx   = headerIndices[0];
-        const driverHeaderIdx = headerIndices.length >= 2 ? headerIndices[1] : null;
+        const team = parseSalaryTable(raw, teamHeaderIdx, undefined);
 
-        const team    = parseSalaryTable(raw, teamHeaderIdx, driverHeaderIdx ?? undefined);
-        const drivers = driverHeaderIdx !== null
-            ? parseSalaryTable(raw, driverHeaderIdx, undefined)
-            : [];
+        // Detect driver column within the SAME header row (side-by-side layout).
+        // Column G only has "Driver Name" with no salary column, so isHeaderCandidate
+        // won't fire for it — instead we scan the header row cells directly.
+        const headers = (raw[teamHeaderIdx] || []).map(h => (h || '').toString().toLowerCase().trim());
+        const driverColIdx = headers.findIndex(h => DRIVER_COL_TERMS.has(h));
+
+        let drivers = [];
+        if (driverColIdx !== -1) {
+            drivers = raw
+                .slice(teamHeaderIdx + 1)
+                .filter(r => r.some(c => c !== '' && c != null))
+                .map(r => (r[driverColIdx] || '').toString().trim())
+                .filter(name => name)
+                .map(name => ({ name, dailySalary: '', bankAccount: '' }));
+        } else {
+            // Fallback: look for a second vertical header block below team table
+            const secondHeaderIdx = raw.findIndex((row, i) => i > teamHeaderIdx && isHeaderCandidate(row));
+            if (secondHeaderIdx !== -1) {
+                drivers = parseSalaryTable(raw, secondHeaderIdx, undefined);
+            }
+        }
 
         return { team, drivers };
     }
