@@ -503,12 +503,8 @@
 
 
     /* ── Global "New Analysis" sidebar button ─────────────────── */
-    // Calls each module's reset directly — no hidden button tricks needed.
     $('globalResetBtn').addEventListener('click', () => {
-        resetTracking();
-        PocTracking.reset();
-        SiteIdJc.reset();
-        AllowanceChecker.reset();
+        location.reload(true);
     });
 
     /* ── Initialise ───────────────────────────────────────────── */
