@@ -12,9 +12,9 @@
  *   C  Old/New      – date < 2026-01-01 → "Old", else → "New"
  *   D  Contractor   – contractor / installation team
  *
- * Supported sheet names (searched in order):
- *   "Invoicing Track"  – PC Tracking files
- *   "POC3 Tracking"    – POC Tracking files
+ * Sheet detection:
+ *   Any sheet whose name contains "Tracking" (case-insensitive).
+ *   If more than one such sheet exists in a file, an error is shown.
  *
  * Column name variants handled automatically:
  *   Site ID      : "Physical Site ID" (PC) | "Site ID" (POC)
@@ -29,8 +29,6 @@ const SiteIdJc = (() => {
     'use strict';
 
     /* ── Configuration ────────────────────────────────────────── */
-    // Sheet names to search for, in priority order.
-    const SHEET_NAMES = ['Invoicing Track', 'POC3 Tracking'];
     const OLD_CUTOFF  = '2026-01-01';
 
     /* ── Column detection rules ───────────────────────────────── */
@@ -75,18 +73,33 @@ const SiteIdJc = (() => {
 
     /* ── Sheet finder ─────────────────────────────────────────── */
     /**
-     * Search the parsed sheets array for the first recognised sheet name.
-     * Returns { sheet, sheetType } or { sheet: null, sheetType: null }.
+     * Search the parsed sheets array for any sheet whose name contains "tracking".
+     * - Exactly 1 match → use it.
+     * - More than 1 match → return an error listing the ambiguous names.
+     * - No match → return { sheet: null }.
+     *
+     * Returns { sheet, sheetType, error } where error is a string or null.
      */
     function findTargetSheet(sheets) {
-        for (const name of SHEET_NAMES) {
-            const target = name.toLowerCase().trim();
-            const found  =
-                sheets.find(s => s.name.toLowerCase().trim() === target) ||
-                sheets.find(s => s.name.toLowerCase().includes(target));
-            if (found) return { sheet: found, sheetType: name };
+        const matches = sheets.filter(s =>
+            s.name.toLowerCase().includes('tracking')
+        );
+
+        if (matches.length === 1) {
+            return { sheet: matches[0], sheetType: matches[0].name, error: null };
         }
-        return { sheet: null, sheetType: null };
+
+        if (matches.length > 1) {
+            const names = matches.map(s => `"${s.name}"`).join(', ');
+            return {
+                sheet: null,
+                sheetType: null,
+                error: `Multiple sheets containing "Tracking" found: ${names}. ` +
+                       `Please keep only the relevant sheet or rename the others.`,
+            };
+        }
+
+        return { sheet: null, sheetType: null, error: null };
     }
 
     /* ── Date parser ──────────────────────────────────────────── */
@@ -127,8 +140,22 @@ const SiteIdJc = (() => {
         return isNaN(d.getTime()) ? null : d;
     }
 
+    /* ── Date formatter ──────────────────────────────────────── */
+    const MONTH_NAMES = ['Jan','Feb','Mar','Apr','May','Jun',
+                         'Jul','Aug','Sep','Oct','Nov','Dec'];
+
+    function formatDate(dateStr) {
+        const d = parseDate(dateStr);
+        if (!d) return dateStr;
+        const dd   = String(d.getDate()).padStart(2, '0');
+        const mmm  = MONTH_NAMES[d.getMonth()];
+        const yyyy = d.getFullYear();
+        return `${dd}-${mmm}-${yyyy}`;
+    }
+
     /* ── Date classifier ──────────────────────────────────────── */
-    const CUTOFF = new Date(OLD_CUTOFF);
+    // Use local-time constructor to avoid UTC-offset shifting the cutoff date.
+    const CUTOFF = new Date(2026, 0, 1);
 
     function classifyDate(dateStr) {
         const d = parseDate(dateStr);
@@ -269,11 +296,16 @@ const SiteIdJc = (() => {
                 try {
                     // Use "job code" as the hint — present in both file types
                     const sheets = await FileHandler.readFile(file, undefined, 'job code');
-                    const { sheet, sheetType } = findTargetSheet(sheets);
+                    const { sheet, sheetType, error } = findTargetSheet(sheets);
+
+                    if (error) {
+                        skipped.push(`"${file.name}" — ${error}`);
+                        continue;
+                    }
 
                     if (!sheet) {
                         const names = sheets.map(s => `"${s.name}"`).join(', ');
-                        skipped.push(`"${file.name}" — no recognised sheet found (available: ${names})`);
+                        skipped.push(`"${file.name}" — no sheet containing "Tracking" found (available: ${names})`);
                         continue;
                     }
 
@@ -308,7 +340,7 @@ const SiteIdJc = (() => {
                                 ? `${siteId}-${jobCode}`
                                 : (siteId || jobCode);
 
-                            return [siteIdJc, taskDate, classifyDate(taskDate), contractor];
+                            return [siteIdJc, formatDate(taskDate), classifyDate(taskDate), contractor];
                         })
                         .filter(row => row[0] || row[1]);
 

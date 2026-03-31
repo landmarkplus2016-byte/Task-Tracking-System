@@ -1,87 +1,190 @@
 # CLAUDE.md
 
-This file provides guidance to Claude Code (claude.ai/code) when working with code in this repository.
+This file provides guidance to Claude Code (claude.ai/code) when working
+with code in this repository.
 
 ## What this project is
 
-A fully static, no-build-step web app (HTML + CSS + vanilla JS) for the Telecom Department. It runs directly from the filesystem or any static host (e.g. GitHub Pages). There is no package.json, no bundler, no server, and no test framework. "Running" the app means opening `index.html` in a browser.
+A fully static, no-build-step web app (HTML + CSS + vanilla JS) for the
+Telecom Department. It runs directly from the filesystem or any static
+host (e.g. GitHub Pages). There is no package.json, no bundler, no
+server, and no test framework. "Running" the app means opening
+`index.html` in a browser.
 
 ## Architecture
 
 ### Module pattern
-Every JS file exposes a single `const` IIFE that returns a public API object. Load order in `index.html` matters — each module depends only on those declared before it:
 
+Every JS file exposes a single `const` IIFE that returns a public API
+object. Load order in `index.html` matters — each module depends only
+on those declared before it:
 ```
-fileHandler.js  →  comparison.js  →  excelExport.js  →  siteIdJc.js  →  app.js
+fileHandler.js → comparison.js → excelExport.js → siteIdJc.js
+→ allowanceChecker.js → app.js
 ```
 
 ### Tab structure
-The UI has three tabs. Each tab is fully independent — separate DOM IDs, separate state, separate logic:
+
+The UI has four tabs. Each tab is fully independent — separate DOM IDs,
+separate state, separate logic:
 
 | Tab | Panel ID | Logic owner |
 |---|---|---|
 | RF-TX Tracking Update | `#panelTracking` | `app.js` |
 | POC Tracking Update | `#panelPocTracking` | `pocTracking.js` |
 | Site ID-JC File | `#panelSiteId` | `siteIdJc.js` |
+| Allowance Checker | `#panelAllowanceChecker` | `allowanceChecker.js` |
 
-Tab switching is handled by `initTabs()` in `app.js` using `aria-controls` as the link between button and panel.
+Tab switching is handled by `initTabs()` in `app.js` using
+`aria-controls` as the link between button and panel.
 
-### Data flow — Tracking Update tab
+---
 
-1. **FileHandler.readFile()** — reads any file SheetJS can parse; auto-detects the header row using a 3-strategy algorithm anchored by the `ID#` column hint
-2. **findSheetWithId()** in `app.js` — selects the right sheet tab: coordinator files use ID-column auto-detection; master file looks for the tab named `"Invoicing Track"` by exact then partial name match
-3. **Comparison.combineCoordinatorSheets()** — merges N coordinator sheets into one Map keyed by `id.toLowerCase()`
-4. **Comparison.parseMasterData()** — builds a Map from the master sheet, also keyed by `id.toLowerCase()`
-5. **Comparison.compare()** — iterates coordinator rows, classifies each as new/changed/unchanged
-6. **checkJobCodeDuplicates()** in `app.js` — post-compare validation; flags any JC value assigned to more than one Site ID across all coordinator rows
-7. **ExcelExport.generate()** — builds output workbook with sheets: Summary, New Entries, Changed Entries, Change Details, Combined Coordinators
+## Tab Descriptions
 
-### Fixed configuration constants (top of `app.js`)
+### 1. RF-TX Tracking Update (`#panelTracking`)
+Compares coordinator Excel files against a master tracking file to
+detect new and changed entries.
+
+- User uploads one or more coordinator files and one master file
+- The app auto-detects the header row and the correct sheet tab
+- Coordinator sheets are merged into one dataset keyed by `ID#`
+- Each row is classified as: New, Changed, or Unchanged vs the master
+- Post-comparison, duplicate Job Codes across different Site IDs are flagged
+- Output is a downloadable Excel file with tabs: New Entries, Collective Tasks
+- A "↺ New Analysis" button resets all state for a fresh run
+
+### 2. POC Tracking Update (`#panelPocTracking`)
+Same structure as RF-TX Tracking Update but uses different identifiers.
+
+- Keyed on `"Job Code"` column instead of `ID#`
+- Looks for the sheet tab named `"POC3 Tracking"` in the master file
+- Otherwise identical flow to RF-TX: upload → compare → export
+
+### 3. Site ID-JC File (`#panelSiteId`)
+Validates and processes Site ID to Job Code mapping files.
+
+- User uploads one or more tracking files
+- Sheet detection: any sheet whose name **contains "Tracking"**
+  (case-insensitive). If multiple matching sheets exist in one file,
+  an error is shown listing the ambiguous names — the file is skipped.
+- Column detection uses fuzzy matching for both PC and POC variants:
+  - Site ID: `"Physical Site ID"` (PC) | `"Site ID"` (POC)
+  - Job Code: `"Job Code"` (both)
+  - Task Date: `"Task Date"` (PC) | `"Installation Date"` (POC)
+  - Contractor: `"Contractor"` (PC) | `"Installation Team"` (POC)
+- Dates are parsed from any recognised format and **always output as
+  `dd-mmm-yyyy`** (e.g. `21-Mar-2026`) in the Excel file
+- Old/New cutoff is **2026-01-01 local time** — dates on or after
+  2026-01-01 are "New"; dates before are "Old". The cutoff is
+  constructed with `new Date(2026, 0, 1)` (not from a string) to
+  avoid UTC-offset misclassification in non-UTC timezones.
+- Output is a single-sheet Excel file: Site ID-JC | Task Date | Old/New | Contractor
+- Fully self-contained, no dependency on other tabs
+
+### 4. Allowance Checker (`#panelAllowanceChecker`)
+Calculates team allowances for a selected month/half-month period
+by combining data from multiple Google Sheets and validating it
+against a master tracking file.
+
+**Data Sources:**
+- `list.xlsx` (in project root) — loaded on startup, contains:
+  - `"Google Sheets URLs"` tab: Sheet Name + URL for each coordinator's
+    Google Sheet
+  - `"Salaries"` tab: Name, Account Number, Salary, Salary/Day for
+    each team member
+- Master Tracking Excel file — uploaded fresh at the start of
+  each analysis run
+
+**Flow:**
+1. On startup, reads `list.xlsx` to load Google Sheet URLs and
+   salary data into app state
+2. User selects Month and Month Half (First / Second) from dropdowns
+3. User uploads the Master Tracking Excel file
+4. App fetches and combines all Google Sheets from the URLs list
+5. Combined data is filtered by selected Month + Month Half
+6. Analysis runs on the filtered dataset:
+   - **Allowance Calculation**: counts non-empty team member fields
+     (Engineer, Tech-1, Tech-2, Tech-3, Driver), multiplies by the
+     Allowance value, then adds vacation allowance per person based
+     on their Salary/Day
+   - **Repetition Check**: flags any team member appearing more than
+     once on the same day
+   - **Site-JC Validation**: splits Site and JC fields by `/`, pairs
+     them positionally, checks each pair against the Master Tracking
+     file, and flags missing or mismatched combos
+7. If errors exist, they are shown in the Errors & Warnings panel
+   before output generation
+8. Output is a downloadable Excel file named
+   `Allowance_Report_[Month]_[Half].xlsx` with tabs:
+   - **Total Tracking**: all combined rows from Google Sheets
+   - **Allowance Amount**: two tables — Team (Name, Total Amount,
+     Account Number) and Driver (Name, Amount)
+
+**Key rules:**
+- Empty team member fields = not counted (truly absent, not zero)
+- Vacation allowance is per person, based on individual Salary/Day
+- Site-JC pairing is positional (index-based)
+- All errors must appear before output is generated
+
+---
+
+## Fixed Configuration Constants (top of `app.js`)
 ```js
-const ID_COLUMN       = 'ID#';
-const MASTER_SHEET    = 'Invoicing Track';
-const CASE_SENSITIVE  = false;
+const ID_COLUMN        = 'ID#';
+const MASTER_SHEET     = 'Invoicing Track';
+const CASE_SENSITIVE   = false;
 const INCLUDE_UNCHANGED = false;
 ```
-These are hardcoded — there is no settings UI. Change them here if the source files change column/sheet names.
 
-### Header row auto-detection (`fileHandler.js → detectHeaderRow`)
-Three strategies in priority order:
-1. **ID-hint scan** — finds the first row containing a cell that matches the supplied `idHint` string (e.g. `"ID#"`). Most reliable.
-2. **Density scan** — finds the first row with ≥ 70 % of max column count AND ≥ 70 % text-label cells.
-3. **Absolute fallback** — first non-empty row.
+These are hardcoded — there is no settings UI.
 
-Always pass `ID#` as the `idColumnHint` when calling `FileHandler.readFile` so strategy 1 fires correctly for the master sheet.
+## Key Files
 
-### Column fuzzy-matching pattern
-Used in both `siteIdJc.js` (`detectColumns`) and `app.js` (`findNormKey`): two passes — exact match against a list of terms, then contains match. Terms are ordered most-specific first to prevent shorter terms (e.g. `"jc"`) from shadowing longer ones (e.g. `"jc#"`).
-
-### Date handling (`siteIdJc.js`)
-SheetJS returns dates from this particular master file as `"dd-Mon-yy"` strings (e.g. `"29-Apr-25"`), not ISO format. The `parseDate()` function handles multiple formats; do **not** use plain string comparison against `"2026-01-01"` for Old/New classification — it will produce wrong results for this format.
-
-## Key files
-
-- **`js/app.js`** — RF-TX Tracking Update tab wiring, `findSheetWithId()`, `checkJobCodeDuplicates()`, `resetTracking()`, auto-trigger debounce (600 ms), tab switching
-- **`js/pocTracking.js`** — POC Tracking Update tab, same structure as `app.js` but keyed on `"Job Code"` column and `"POC3 Tracking"` sheet; exposes only `PocTracking.init()`
-- **`js/siteIdJc.js`** — Site ID-JC tab, fully self-contained, exposes only `SiteIdJc.init()`
-- **`js/comparison.js`** — pure data logic, no DOM; all Map keys are `.toLowerCase()` for case-insensitive ID matching
-- **`js/fileHandler.js`** — file I/O and drag-drop; `setupDropZone` accepts all file types (SheetJS handles format errors at parse time)
-- **`js/excelExport.js`** — output workbook builder; `publicHeaders()` strips the internal `__source__` column from all output sheets
-
-### Reset / New Analysis
-Each tracking tab (RF-TX and POC) has a "↺ New Analysis" button that appears in the results section after analysis completes. Clicking it:
-- Clears all state (files, results)
-- Resets the drop zones and file lists
-- Hides the results, progress, warnings, and conflicts panels
-- Resets the file inputs so the same files can be re-uploaded
+- **`js/app.js`** — RF-TX tab wiring, tab switching,
+  `findSheetWithId()`, `checkJobCodeDuplicates()`, reset logic
+- **`js/pocTracking.js`** — POC Tracking tab, same structure as
+  app.js but keyed on Job Code and POC3 Tracking sheet
+- **`js/siteIdJc.js`** — Site ID-JC tab, fully self-contained
+- **`js/allowanceChecker.js`** — Allowance Checker tab, reads
+  list.xlsx on startup, fetches Google Sheets, runs all analysis
+- **`js/comparison.js`** — pure data logic, no DOM
+- **`js/fileHandler.js`** — file I/O and drag-drop
+- **`js/excelExport.js`** — output workbook builder
+- **`list.xlsx`** — reference data file (Google Sheet URLs +
+  salary data), stored in project root, updated manually and
+  pushed to GitHub when changes are needed
 
 ## PWA
-- `manifest.json` requires `icons/icon-192.png` and `icons/icon-512.png` to trigger the browser install prompt. These are not in the repo — open `icons/generate-icons.html` in a browser to download them.
-- `sw.js` caches all static assets for offline use. **Always bump the cache version string in `sw.js` before pushing any update**, otherwise installed apps will keep serving the old cached version.
-- Current cache version: `task-tracker-v1.1`. Use `v1.x` for small updates, `vX.0` for major releases.
 
-## Deployment checklist
-1. Bump the version in `sw.js` (e.g. `v1.1` → `v1.2`)
+- `manifest.json` requires `icons/icon-192.png` and
+  `icons/icon-512.png`
+- `sw.js` caches all static assets for offline use
+- **Always bump the cache version string in `sw.js` before
+  pushing any update**
+- Current cache version: `task-tracker-v2.160`
+- Version format: always two digits after the dot (e.g. `v2.10`,
+  `v2.11`) — never single digit minor (not `v2.9`)
+
+## Deployment Checklist
+
+1. Bump version in `sw.js` (e.g. `v2.160` → `v2.161`)
 2. Commit with a descriptive message
 3. Push to GitHub
 4. Reopen the installed app to load the update
+
+## Known Decisions & Gotchas
+
+### Site ID-JC: sheet detection
+Previously hard-coded to `"Invoicing Track"` and `"POC3 Tracking"`.
+Changed to match **any sheet name containing "Tracking"** so that
+variant names like `"Tracking"` or `"Gendy Tracking"` are accepted.
+Ambiguity (multiple Tracking sheets in one file) is an error, not
+a silent pick.
+
+### Site ID-JC: date handling
+- All source dates are normalised to `dd-mmm-yyyy` on output regardless
+  of source format (ISO, slash-delimited, SheetJS serial, etc.)
+- The Old/New cutoff uses `new Date(2026, 0, 1)` — local-time
+  constructor — not `new Date('2026-01-01')` which is UTC and would
+  misclassify Jan 1 as "Old" in UTC+ timezones (e.g. Egypt UTC+2/+3).
