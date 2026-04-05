@@ -167,7 +167,7 @@ These are hardcoded — there is no settings UI.
 - `sw.js` caches all static assets for offline use
 - **Always bump the cache version string in `sw.js` before
   pushing any update**
-- Current cache version: `task-tracker-v2.165`
+- Current cache version: `task-tracker-v2.166`
 - Version format: always two digits after the dot (e.g. `v2.10`,
   `v2.11`) — never single digit minor (not `v2.9`)
 

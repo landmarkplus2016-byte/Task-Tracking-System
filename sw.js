@@ -3,7 +3,7 @@
  * Caches static assets for offline use.
  */
 
-const CACHE_NAME = 'task-tracker-v2.165';
+const CACHE_NAME = 'task-tracker-v2.166';
 
 const STATIC_ASSETS = [
     './',
@@ -46,8 +46,18 @@ self.addEventListener('activate', (event) => {
     self.clients.claim();
 });
 
+// Only cache same-origin assets + explicitly whitelisted external URLs (e.g. CDN).
+// External dynamic URLs (Google Sheets exports, etc.) are never intercepted so
+// they always go straight to the network and are never stale.
+const STATIC_ASSET_URLS = new Set(STATIC_ASSETS);
+
 self.addEventListener('fetch', (event) => {
-    // Cache-first for same-origin assets; network-first for everything else
+    const url = event.request.url;
+    const isSameOrigin = url.startsWith(self.location.origin);
+    const isWhitelistedExternal = STATIC_ASSET_URLS.has(url);
+
+    if (!isSameOrigin && !isWhitelistedExternal) return; // pass through unmodified
+
     event.respondWith(
         caches.match(event.request).then((cached) => {
             if (cached) return cached;

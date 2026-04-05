@@ -710,8 +710,8 @@ main {
 }
 
 /* ── Allowance Checker — table cell variants ─────────────────── */
-.allowance-th-num,
-.allowance-td-num  { text-align: center; white-space: nowrap; }
+.allowance-table .allowance-th-num,
+.allowance-table .allowance-td-num { text-align: center; white-space: nowrap; }
 
 .allowance-td-total {
     font-weight: 700;
