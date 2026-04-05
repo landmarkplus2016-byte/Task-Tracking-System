@@ -62,31 +62,17 @@ const ExcelExport = (() => {
         },
     };
 
-    const DATA_STYLE = {
-        border: {
-            top:    { style: 'thin', color: { rgb: '000000' } },
-            bottom: { style: 'thin', color: { rgb: '000000' } },
-            left:   { style: 'thin', color: { rgb: '000000' } },
-            right:  { style: 'thin', color: { rgb: '000000' } },
-        },
-    };
-
     /**
-     * Apply header + data border styles to a worksheet in-place.
+     * Apply header style only. Per-cell data borders are intentionally
+     * omitted — they inflate file size dramatically (each cell carries
+     * its own style XML, multiplying size by 3-4× on large sheets).
      * @param {Object} ws        SheetJS worksheet
      * @param {number} colCount  Number of columns
-     * @param {number} rowCount  Number of data rows (excluding header)
      */
-    function applyStyles(ws, colCount, rowCount) {
+    function applyStyles(ws, colCount) {
         for (let c = 0; c < colCount; c++) {
             const ref = XLSX.utils.encode_cell({ r: 0, c });
             if (ws[ref]) ws[ref].s = HEADER_STYLE;
-        }
-        for (let r = 1; r <= rowCount; r++) {
-            for (let c = 0; c < colCount; c++) {
-                const ref = XLSX.utils.encode_cell({ r, c });
-                if (ws[ref]) ws[ref].s = DATA_STYLE;
-            }
         }
         return ws;
     }
@@ -156,7 +142,7 @@ const ExcelExport = (() => {
         });
 
         const ws = autoWidth(buildSheet(headers, dataRows), headers, dataRows);
-        applyStyles(ws, headers.length, dataRows.length);
+        applyStyles(ws, headers.length);
         ws['!freeze'] = { xSplit: 0, ySplit: 1 };
         return ws;
     }
@@ -200,7 +186,7 @@ const ExcelExport = (() => {
         });
 
         const ws = autoWidth(buildSheet(headers, dataRows), headers, dataRows);
-        applyStyles(ws, headers.length, dataRows.length);
+        applyStyles(ws, headers.length);
         ws['!freeze'] = { xSplit: 0, ySplit: 1 };
         return ws;
     }
@@ -218,7 +204,7 @@ const ExcelExport = (() => {
         );
 
         const ws = autoWidth(buildSheet(headers, dataRows), headers, dataRows);
-        applyStyles(ws, headers.length, dataRows.length);
+        applyStyles(ws, headers.length);
         return ws;
     }
 
@@ -261,7 +247,7 @@ const ExcelExport = (() => {
      * @param {string} filename Target filename (.xlsx)
      */
     function download(wb, filename) {
-        XLSX.writeFile(wb, filename);
+        XLSX.writeFile(wb, filename, { compression: true });
     }
 
     /* ── Public API ───────────────────────────────────────────── */

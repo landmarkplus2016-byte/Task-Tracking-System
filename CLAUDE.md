@@ -50,6 +50,10 @@ detect new and changed entries.
 - The app auto-detects the header row and the correct sheet tab
 - Coordinator sheets are merged into one dataset keyed by `ID#`
 - Each row is classified as: New, Changed, or Unchanged vs the master
+- **New entry filter**: an ID is only classified as "New" if it is
+  absent from **both** the `"Invoicing Track"` sheet **and** the
+  `"Old Tasks"` sheet in the master file. If the `"Old Tasks"` sheet
+  does not exist in the master file, this filter is silently skipped.
 - Post-comparison, duplicate Job Codes across different Site IDs are flagged
 - Output is a downloadable Excel file with tabs: New Entries, Collective Tasks
 - A "↺ New Analysis" button resets all state for a fresh run
@@ -142,7 +146,8 @@ These are hardcoded — there is no settings UI.
 ## Key Files
 
 - **`js/app.js`** — RF-TX tab wiring, tab switching,
-  `findSheetWithId()`, `checkJobCodeDuplicates()`, reset logic
+  `findSheetWithId()`, `checkJobCodeDuplicates()`, Old Tasks filter,
+  reset logic
 - **`js/pocTracking.js`** — POC Tracking tab, same structure as
   app.js but keyed on Job Code and POC3 Tracking sheet
 - **`js/siteIdJc.js`** — Site ID-JC tab, fully self-contained
@@ -162,7 +167,7 @@ These are hardcoded — there is no settings UI.
 - `sw.js` caches all static assets for offline use
 - **Always bump the cache version string in `sw.js` before
   pushing any update**
-- Current cache version: `task-tracker-v2.160`
+- Current cache version: `task-tracker-v2.163`
 - Version format: always two digits after the dot (e.g. `v2.10`,
   `v2.11`) — never single digit minor (not `v2.9`)
 
@@ -181,6 +186,16 @@ Changed to match **any sheet name containing "Tracking"** so that
 variant names like `"Tracking"` or `"Gendy Tracking"` are accepted.
 Ambiguity (multiple Tracking sheets in one file) is an error, not
 a silent pick.
+
+### RF-TX: Old Tasks filter
+The master file may contain an optional `"Old Tasks"` sheet alongside
+`"Invoicing Track"`. After `Comparison.compare()` produces its
+`newEntries` list, `app.js` loads this sheet (using the same
+`parseMasterData()` path) and filters out any entry whose `ID#` appears
+in it. The filter is case-insensitive (both sides are lowercased).
+If the sheet is absent, no error is raised and no entries are filtered.
+This logic lives entirely in `runProcess()` in `app.js` — `comparison.js`
+and `excelExport.js` are unchanged.
 
 ### Site ID-JC: date handling
 - All source dates are normalised to `dd-mmm-yyyy` on output regardless
