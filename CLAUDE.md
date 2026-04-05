@@ -106,6 +106,7 @@ against a master tracking file.
 2. User selects Month and Month Half (First / Second) from dropdowns
 3. User uploads the Master Tracking Excel file
 4. App fetches and combines all Google Sheets from the URLs list
+   using `{ cache: 'no-store' }` so every run hits the network fresh
 5. Combined data is filtered by selected Month + Month Half
 6. Analysis runs on the filtered dataset:
    - **Allowance Calculation**: counts non-empty team member fields
@@ -125,11 +126,20 @@ against a master tracking file.
    - **Allowance Amount**: two tables — Team (Name, Total Amount,
      Account Number) and Driver (Name, Amount)
 
+**Results UI:**
+- Stat cards row: Sheets fetched · Total rows · Filtered count ·
+  Grand Total · **Avg Team Utilization** (team members only, `Math.ceil`)
+- **Team Utilization table**: Name, Days Worked (unique days via Set),
+  Utilization % (`Math.ceil(days/13×100)`). Team members only — drivers
+  excluded. Sorted by days worked descending, then alphabetically.
+- Data Sources table: rows loaded vs matched per coordinator sheet
+
 **Key rules:**
 - Empty team member fields = not counted (truly absent, not zero)
 - Vacation allowance is per person, based on individual Salary/Day
 - Site-JC pairing is positional (index-based)
 - All errors must appear before output is generated
+- Days worked = unique calendar days (Set-based), not row count
 
 ---
 
@@ -196,6 +206,34 @@ in it. The filter is case-insensitive (both sides are lowercased).
 If the sheet is absent, no error is raised and no entries are filtered.
 This logic lives entirely in `runProcess()` in `app.js` — `comparison.js`
 and `excelExport.js` are unchanged.
+
+### Excel output file size
+`excelExport.js` previously applied border styles to every data cell,
+and `XLSX.writeFile` used no ZIP compression (store mode). Combined,
+these inflated a ~4 MB input to ~11 MB output. Both fixed:
+- `applyStyles()` now only styles the header row — data rows carry no
+  style objects, which eliminates the per-cell XML bloat.
+- `XLSX.writeFile(wb, filename, { compression: true })` — enables deflate
+  compression on the output ZIP, bringing file size back in line with
+  the input.
+
+### Allowance Checker: Google Sheets fetch always hits network
+Two layers of caching were silently serving stale CSV data:
+1. **Browser HTTP cache** — fixed with `fetch(url, { cache: 'no-store' })`
+   in `fetchGoogleSheets()`.
+2. **Service Worker Cache Storage** — the SW's cache-first handler was
+   intercepting the fetch and returning a cached CSV before it ever
+   reached the network. `{ cache: 'no-store' }` does NOT bypass SW cache.
+   Fixed in `sw.js` by only intercepting same-origin requests and
+   explicitly whitelisted external assets (CDN). Any other external URL
+   (Google Sheets export, etc.) is not intercepted at all — the browser
+   handles it directly.
+
+### CSS specificity: numeric column alignment
+`.allowance-table th` (specificity 0,1,1) overrides `.allowance-th-num`
+(0,1,0), causing header cells to stay left-aligned even when the class
+sets `text-align: center`. Fixed by scoping the rule to
+`.allowance-table .allowance-th-num` (0,2,0).
 
 ### Site ID-JC: date handling
 - All source dates are normalised to `dd-mmm-yyyy` on output regardless
