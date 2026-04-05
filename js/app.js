@@ -322,6 +322,19 @@
 
             console.log(`✓ "${state.masterFile.name}" — ${masterSheet.rows.length} rows [sheet: "${masterSheet.name}"] [header row: ${masterSheet.detectedHeaderRow + 1}]`);
 
+            // ── Old Tasks sheet (optional) ────────────────────────
+            // Any ID found here is treated as a known old task and
+            // will NOT be classified as a new entry.
+            const { sheet: oldTasksSheet } = findSheetWithId(masterSheets, -1, ID_COLUMN, 'Old Tasks');
+            let oldTasksIds = new Set();
+            if (oldTasksSheet && oldTasksSheet.headers.length > 0) {
+                const oldTasksParsed = Comparison.parseMasterData(oldTasksSheet, ID_COLUMN);
+                oldTasksIds = new Set(oldTasksParsed.rows.keys()); // keys are already lowercased
+                console.log(`Old Tasks sheet found — ${oldTasksIds.size} IDs will be excluded from New Entries`);
+            } else {
+                console.log('No "Old Tasks" sheet found in master file — skipping old-tasks filter');
+            }
+
             /* ── Step 3: Combine coordinator sheets ──────────────── */
             setProgress(58, 'Combining coordinator data…');
 
@@ -351,6 +364,14 @@
             setProgress(84, 'Comparing…');
 
             const results = Comparison.compare(coordinatorCombined, masterParsed, CASE_SENSITIVE);
+
+            // Filter out IDs that exist in the Old Tasks sheet
+            if (oldTasksIds.size > 0) {
+                const beforeFilter = results.newEntries.length;
+                results.newEntries = results.newEntries.filter(e => !oldTasksIds.has(e.id));
+                const excluded = beforeFilter - results.newEntries.length;
+                if (excluded > 0) console.log(`Old Tasks filter: removed ${excluded} entr${excluded === 1 ? 'y' : 'ies'} from New Entries`);
+            }
 
             console.log(`New: ${results.newEntries.length}  Changed: ${results.changedEntries.length}  Unchanged: ${results.unchangedEntries.length}`);
 
