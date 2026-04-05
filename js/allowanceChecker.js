@@ -830,19 +830,21 @@ const AllowanceChecker = (() => {
                 <div class="allowance-fetch-stat allowance-fetch-stat--util">
                     <span class="allowance-fetch-num">${(() => {
                         const team = people.filter(p => p.isTeam);
-                        if (!team.length) return '0.0%';
+                        if (!team.length) return '0%';
                         const avg = team.reduce((s, p) => s + p.daysWorked, 0) / team.length / 13 * 100;
-                        return avg.toFixed(1) + '%';
+                        return Math.ceil(avg) + '%';
                     })()}</span>
                     <span class="allowance-fetch-label">Avg Team Utilization</span>
                 </div>
             </div>
         `;
 
-        /* ── Utilization table (team members only) ──────────── */
-        const teamPeople = people.filter(p => p.isTeam);
+        /* ── Utilization table (team members only, most days first) ── */
+        const teamPeople = people
+            .filter(p => p.isTeam)
+            .sort((a, b) => b.daysWorked - a.daysWorked || a.name.localeCompare(b.name));
         const utilizationRows = teamPeople.map(p => {
-            const utilPct = (p.daysWorked / 13 * 100).toFixed(1);
+            const utilPct = Math.ceil(p.daysWorked / 13 * 100);
             return `
                 <tr>
                     <td>${esc(p.name)}</td>

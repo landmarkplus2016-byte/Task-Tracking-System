@@ -660,6 +660,7 @@ main {
     display: flex;
     flex-direction: column;
     align-items: center;
+    justify-content: center;
     background: var(--primary-light);
     border: 1px solid #bfdbfe;
     border-radius: var(--radius);
@@ -696,7 +697,7 @@ main {
 
 .allowance-fetch-stat--total .allowance-fetch-num { color: var(--warning); }
 
-.allowance-fetch-num--total { font-size: 1.35rem; }
+.allowance-fetch-num--total { font-size: 1.5rem; }
 
 /* ── Allowance Checker — section headings ────────────────────── */
 .allowance-section-title {
@@ -710,7 +711,7 @@ main {
 
 /* ── Allowance Checker — table cell variants ─────────────────── */
 .allowance-th-num,
-.allowance-td-num  { text-align: right; white-space: nowrap; }
+.allowance-td-num  { text-align: center; white-space: nowrap; }
 
 .allowance-td-total {
     font-weight: 700;
