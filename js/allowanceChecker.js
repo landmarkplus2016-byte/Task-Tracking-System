@@ -178,7 +178,7 @@ const AllowanceChecker = (() => {
             }
 
             try {
-                const res = await fetch(exportUrl);
+                const res = await fetch(exportUrl, { cache: 'no-store' });
                 if (!res.ok) throw new Error(`HTTP ${res.status}`);
 
                 const csvText = await res.text();
@@ -362,6 +362,7 @@ const AllowanceChecker = (() => {
                     personMap.set(normKey, {
                         name:           displayName,
                         rows:           0,
+                        daysWorked:     new Set(),
                         allowanceTotal: 0,
                         vacationTotal:  0,
                         bankAccount:    sal ? sal.bankAccount : '',
@@ -374,6 +375,7 @@ const AllowanceChecker = (() => {
 
                 const person = personMap.get(normKey);
                 person.rows++;
+                person.daysWorked.add((row.day || '').trim());
                 person.allowanceTotal += allowancePerPerson;
 
                 if (hasVacation) {
@@ -405,6 +407,7 @@ const AllowanceChecker = (() => {
                     personMap.set(normKey, {
                         name:           displayName,
                         rows:           0,
+                        daysWorked:     new Set(),
                         allowanceTotal: 0,
                         vacationTotal:  0,
                         bankAccount:    sal ? sal.bankAccount : '',
@@ -414,6 +417,7 @@ const AllowanceChecker = (() => {
 
                 const person = personMap.get(normKey);
                 person.rows++;
+                person.daysWorked.add((row.day || '').trim());
                 person.allowanceTotal += allowancePerPerson;
 
                 if (hasVacation && sal && sal.dailySalary > 0) {
@@ -426,7 +430,7 @@ const AllowanceChecker = (() => {
         }
 
         const people = Array.from(personMap.values())
-            .map(p => ({ ...p, grandTotal: p.allowanceTotal + p.vacationTotal }))
+            .map(p => ({ ...p, daysWorked: p.daysWorked.size, grandTotal: p.allowanceTotal + p.vacationTotal }))
             .sort((a, b) => a.name.localeCompare(b.name));
 
         return { people, grandTotal, calcWarnings, calcErrors };
@@ -823,52 +827,45 @@ const AllowanceChecker = (() => {
                     <span class="allowance-fetch-num allowance-fetch-num--total">${fmt(grandTotal)}</span>
                     <span class="allowance-fetch-label">Grand Total</span>
                 </div>
+                <div class="allowance-fetch-stat allowance-fetch-stat--util">
+                    <span class="allowance-fetch-num">${(() => {
+                        const team = people.filter(p => p.isTeam);
+                        if (!team.length) return '0.0%';
+                        const avg = team.reduce((s, p) => s + p.daysWorked, 0) / team.length / 13 * 100;
+                        return avg.toFixed(1) + '%';
+                    })()}</span>
+                    <span class="allowance-fetch-label">Avg Team Utilization</span>
+                </div>
             </div>
         `;
 
-        /* ── Per-person breakdown table ─────────────────────── */
-        const totAllowance = people.reduce((s, p) => s + p.allowanceTotal, 0);
-        const totVacation  = people.reduce((s, p) => s + p.vacationTotal,  0);
-        const totGrand     = people.reduce((s, p) => s + p.grandTotal,     0);
-
-        const personRows = people.map(p => `
-            <tr>
-                <td>${esc(p.name)}</td>
-                <td class="allowance-td-num">${p.rows}</td>
-                <td class="allowance-td-num">${fmt(p.allowanceTotal)}</td>
-                <td class="allowance-td-num">${p.vacationTotal > 0 ? fmt(p.vacationTotal) : '<span class="allowance-nil">—</span>'}</td>
-                <td class="allowance-td-num allowance-td-total">${fmt(p.grandTotal)}</td>
-                <td class="allowance-td-bank">${esc(p.bankAccount) || '<span class="allowance-nil">—</span>'}</td>
-            </tr>
-        `).join('');
+        /* ── Utilization table (team members only) ──────────── */
+        const teamPeople = people.filter(p => p.isTeam);
+        const utilizationRows = teamPeople.map(p => {
+            const utilPct = (p.daysWorked / 13 * 100).toFixed(1);
+            return `
+                <tr>
+                    <td>${esc(p.name)}</td>
+                    <td class="allowance-td-num">${p.daysWorked}</td>
+                    <td class="allowance-td-num">${utilPct}%</td>
+                </tr>
+            `;
+        }).join('');
 
         const personTable = `
-            <h3 class="allowance-section-title">Per-Person Breakdown</h3>
+            <h3 class="allowance-section-title">Team Utilization</h3>
             <div class="allowance-table-wrap">
                 <table class="allowance-table">
                     <thead>
                         <tr>
                             <th>Name</th>
-                            <th class="allowance-th-num">Rows</th>
-                            <th class="allowance-th-num">Allowance</th>
-                            <th class="allowance-th-num">Vacation</th>
-                            <th class="allowance-th-num">Total</th>
-                            <th>Bank Account</th>
+                            <th class="allowance-th-num">Days Worked</th>
+                            <th class="allowance-th-num">Utilization</th>
                         </tr>
                     </thead>
                     <tbody>
-                        ${personRows || '<tr><td colspan="6" class="allowance-empty">No data</td></tr>'}
+                        ${utilizationRows || '<tr><td colspan="3" class="allowance-empty">No data</td></tr>'}
                     </tbody>
-                    <tfoot>
-                        <tr class="allowance-table-tfoot">
-                            <td>Totals</td>
-                            <td class="allowance-td-num">—</td>
-                            <td class="allowance-td-num">${fmt(totAllowance)}</td>
-                            <td class="allowance-td-num">${totVacation > 0 ? fmt(totVacation) : '<span class="allowance-nil">—</span>'}</td>
-                            <td class="allowance-td-num allowance-td-total">${fmt(totGrand)}</td>
-                            <td></td>
-                        </tr>
-                    </tfoot>
                 </table>
             </div>
         `;
