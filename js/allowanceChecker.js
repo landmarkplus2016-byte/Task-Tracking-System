@@ -47,6 +47,7 @@ const AllowanceChecker = (() => {
 
     const state = {
         masterFile:    null,
+        siteJcFile:    null,    // optional reference file for New/Old split
         sheetRows:     [],      // unified rows from all Google Sheets
         filteredRows:  [],      // rows matching selected month + half
         masterJcSet:   new Set(), // SiteID-JC values from master tracking tab
@@ -515,6 +516,293 @@ const AllowanceChecker = (() => {
         };
     }
 
+    /* ── New/Old split helpers ───────────────────────────────── */
+
+    /**
+     * Parse the uploaded Site ID-JC reference file (output from tab 3).
+     * Returns a Map: lowercased "SiteID-JC" combo → 'Old' | 'New' | ''
+     * Expects columns named "Site ID-JC" and "Old/New".
+     */
+    async function parseSiteJcMap() {
+        if (!state.siteJcFile) return new Map();
+
+        const sheets = await FileHandler.readFile(state.siteJcFile);
+        const sheet  = sheets[0];
+        if (!sheet) return new Map();
+
+        const norm     = h => (h || '').toLowerCase().replace(/[\s\-_/]/g, '');
+        const normHdrs = sheet.headers.map(norm);
+
+        // Find Site ID-JC column
+        let siteJcIdx = normHdrs.findIndex(h => h === 'siteidjc');
+        if (siteJcIdx === -1) siteJcIdx = normHdrs.findIndex(h => h.includes('siteid'));
+
+        // Find Old/New column
+        let oldNewIdx = normHdrs.findIndex(h => h === 'oldnew');
+        if (oldNewIdx === -1) oldNewIdx = normHdrs.findIndex(h => h.includes('old') && h.includes('new'));
+        if (oldNewIdx === -1) oldNewIdx = normHdrs.findIndex(h => h.includes('old'));
+
+        if (siteJcIdx === -1 || oldNewIdx === -1) return new Map();
+
+        const map = new Map();
+        for (const row of sheet.rows) {
+            const combo  = (row[siteJcIdx] ?? '').toString().trim();
+            const oldNew = (row[oldNewIdx] ?? '').toString().trim();
+            if (combo) map.set(combo.toLowerCase(), oldNew);
+        }
+        return map;
+    }
+
+    /**
+     * For a single row, classify each site-JC pair as Old or New.
+     * Returns { oldCount, newCount, total }.
+     * Pairs not found in siteJcMap (or blank site/jc) → treated as New.
+     */
+    function classifyRowPairs(row, siteJcMap) {
+        const siteRaw = (row.site || '').trim();
+        const jcRaw   = (row.jc   || '').trim();
+
+        if (!siteRaw || !jcRaw) return { oldCount: 0, newCount: 1, total: 1 };
+
+        const sites = siteRaw.split('/').map(s => s.trim()).filter(Boolean);
+        const jcs   = jcRaw.split('/').map(s => s.trim()).filter(Boolean);
+        const n     = Math.min(sites.length, jcs.length);
+
+        if (n === 0) return { oldCount: 0, newCount: 1, total: 1 };
+
+        let oldCount = 0, newCount = 0;
+        for (let i = 0; i < n; i++) {
+            const combo = `${sites[i]}-${jcs[i]}`.toLowerCase();
+            const val   = (siteJcMap.get(combo) || '').toLowerCase();
+            if (val === 'old') oldCount++;
+            else newCount++;   // 'new', blank, or not found → New
+        }
+
+        return { oldCount, newCount, total: n };
+    }
+
+    /**
+     * Like computeAllowances() but splits each person's totals into Old and New
+     * based on the site-JC pair classification from siteJcMap.
+     */
+    function computeSplitAllowances(filteredRows, siteJcMap) {
+        const teamSalaryMap   = buildSalaryMap(AppData.getSalaries());
+        const driverSalaryMap = buildSalaryMap(AppData.getDriverSalaries());
+
+        // normKey → { name, oldAllowance, oldVacation, newAllowance, newVacation, bankAccount, isTeam }
+        const personMap = new Map();
+        let oldGrandTotal = 0;
+        let newGrandTotal = 0;
+
+        const TEAM_FIELDS_LOCAL = ['engineer', 'tech1', 'tech2', 'tech3'];
+
+        for (const row of filteredRows) {
+            const allowancePerPerson = parseFloat(row.allowance) || 0;
+            const hasVacation        = (row.vacationAllowance || '').trim() !== '';
+
+            const { oldCount, newCount, total } = classifyRowPairs(row, siteJcMap);
+            const oldFrac = total > 0 ? oldCount / total : 0;
+            const newFrac = total > 0 ? newCount / total : 1;
+
+            const oldAllow = allowancePerPerson * oldFrac;
+            const newAllow = allowancePerPerson * newFrac;
+
+            let rowOldVac = 0, rowNewVac = 0, memberCount = 0;
+
+            const processMember = (rawName, isTeam) => {
+                if (!rawName) return;
+                memberCount++;
+
+                const sal         = isTeam
+                    ? lookupSalary(teamSalaryMap, rawName)
+                    : (lookupSalary(driverSalaryMap, rawName) || lookupSalary(teamSalaryMap, rawName));
+                const displayName = sal ? sal.name : rawName;
+                const normKey     = normName(displayName);
+
+                if (!personMap.has(normKey)) {
+                    personMap.set(normKey, {
+                        name:         displayName,
+                        oldAllowance: 0, oldVacation: 0,
+                        newAllowance: 0, newVacation: 0,
+                        bankAccount:  sal ? sal.bankAccount : '',
+                        isTeam,
+                    });
+                } else if (isTeam) {
+                    personMap.get(normKey).isTeam = true;
+                }
+
+                const p = personMap.get(normKey);
+                p.oldAllowance += oldAllow;
+                p.newAllowance += newAllow;
+
+                if (hasVacation && sal && sal.dailySalary > 0) {
+                    p.oldVacation += sal.dailySalary * oldFrac;
+                    p.newVacation += sal.dailySalary * newFrac;
+                    rowOldVac     += sal.dailySalary * oldFrac;
+                    rowNewVac     += sal.dailySalary * newFrac;
+                }
+            };
+
+            for (const field of TEAM_FIELDS_LOCAL) processMember((row[field] || '').trim(), true);
+            processMember((row.driver || '').trim(), false);
+
+            oldGrandTotal += oldAllow * memberCount + rowOldVac;
+            newGrandTotal += newAllow * memberCount + rowNewVac;
+        }
+
+        const toPeople = (isOld) => Array.from(personMap.values())
+            .map(p => ({
+                name:        p.name,
+                grandTotal:  isOld ? p.oldAllowance + p.oldVacation : p.newAllowance + p.newVacation,
+                bankAccount: p.bankAccount,
+                isTeam:      p.isTeam,
+            }))
+            .filter(p => p.grandTotal > 0)
+            .sort((a, b) => a.name.localeCompare(b.name));
+
+        return {
+            oldPeople: toPeople(true),
+            newPeople: toPeople(false),
+            oldGrandTotal,
+            newGrandTotal,
+        };
+    }
+
+    /**
+     * Split filtered rows into Old and New subsets, adjusting the allowance
+     * value proportionally. Rows with no Old pairs are excluded from oldRows
+     * and vice versa.
+     */
+    function buildSplitTrackingRows(filteredRows, siteJcMap) {
+        const oldRows = [], newRows = [];
+        for (const row of filteredRows) {
+            const { oldCount, newCount, total } = classifyRowPairs(row, siteJcMap);
+            const origAllow = parseFloat(row.allowance) || 0;
+            const oldFrac   = total > 0 ? oldCount / total : 0;
+            const newFrac   = total > 0 ? newCount / total : 1;
+
+            if (oldFrac > 0) oldRows.push({ ...row, allowance: String(origAllow * oldFrac) });
+            if (newFrac > 0) newRows.push({ ...row, allowance: String(origAllow * newFrac) });
+        }
+        return { oldRows, newRows };
+    }
+
+    /** Build and download one workbook (Old or New) with Tracking + Allowance Amount sheets. */
+    function buildSplitWorkbook(trackingRows, people, grandTotal, monthAbbr, halfStr, label) {
+        const wb = XLSX.utils.book_new();
+
+        /* ── Sheet 1: Tracking ─────────────────────────────── */
+        const trackingHeaders = [
+            'Month', 'Day', 'Month Half', 'Coordinator', 'Site', 'Area',
+            'Start Time', 'End Time', 'Project', 'Sub Project',
+            'Engineer', 'Tech-1', 'Tech-2', 'Tech-3', 'Driver',
+            'Allowance', 'Vacation Allowance', 'Work Details', 'JC',
+        ];
+
+        const summaryRow = new Array(trackingHeaders.length).fill('');
+        summaryRow[8] = 'Total Allowance';
+        summaryRow[9] = grandTotal;
+
+        const trackingData = [
+            summaryRow,
+            new Array(trackingHeaders.length).fill(''),
+            trackingHeaders,
+            ...trackingRows.map(r => [
+                r.month, r.day, r.monthHalf, r.coordinator, r.site, r.area,
+                r.startTime, r.endTime, r.project, r.subProject,
+                r.engineer, r.tech1, r.tech2, r.tech3, r.driver,
+                r.allowance, r.vacationAllowance, r.workDetails, r.jc,
+            ]),
+        ];
+
+        const trackingSheet = XLSX.utils.aoa_to_sheet(trackingData);
+        const totalStyle = {
+            font:      { bold: true, color: { rgb: 'FFFFFF' } },
+            fill:      { fgColor: { rgb: '00B050' } },
+            alignment: { horizontal: 'center', vertical: 'center' },
+        };
+        ['I1', 'J1'].forEach(addr => {
+            if (trackingSheet[addr]) trackingSheet[addr].s = totalStyle;
+        });
+        styleHeaderRow(trackingSheet, 2, trackingHeaders.length);
+        trackingSheet['!cols'] = [
+            { wch: 6 }, { wch: 5 }, { wch: 12 }, { wch: 22 }, { wch: 20 },
+            { wch: 14 }, { wch: 11 }, { wch: 11 }, { wch: 18 }, { wch: 18 },
+            { wch: 20 }, { wch: 20 }, { wch: 20 }, { wch: 20 }, { wch: 20 },
+            { wch: 11 }, { wch: 18 }, { wch: 30 }, { wch: 12 },
+        ];
+        trackingSheet['!freeze'] = { xSplit: 0, ySplit: 3 };
+
+        const tabName = `${monthAbbr} - ${halfStr} - ${label}`.slice(0, 31);
+        XLSX.utils.book_append_sheet(wb, trackingSheet, tabName);
+
+        /* ── Sheet 2: Allowance Amount ─────────────────────── */
+        const { team, drivers } = categorizeMembers([], people);
+        const teamRows = team.map(p => [p.name, p.grandTotal, p.bankAccount]);
+        const drvRows  = drivers.map(p => [p.name, p.grandTotal]);
+
+        const aoa = [], markers = {};
+        markers[aoa.length] = 'section'; aoa.push(['Team']);
+        markers[aoa.length] = 'cols3';   aoa.push(['Name', 'Total Amount', 'Bank Account #']);
+        teamRows.forEach(r => aoa.push(r));
+        aoa.push([]);
+        markers[aoa.length] = 'section'; aoa.push(['Driver']);
+        markers[aoa.length] = 'cols2';   aoa.push(['Name', 'Amount']);
+        drvRows.forEach(r => aoa.push(r));
+
+        const allowanceSheet = XLSX.utils.aoa_to_sheet(aoa);
+        Object.entries(markers).forEach(([ri, type]) => {
+            const rowIdx = parseInt(ri, 10);
+            if (type === 'section') styleSectionLabel(allowanceSheet, rowIdx);
+            if (type === 'cols3')   styleHeaderRow(allowanceSheet, rowIdx, 3);
+            if (type === 'cols2')   styleHeaderRow(allowanceSheet, rowIdx, 2);
+        });
+        allowanceSheet['!cols'] = [{ wch: 24 }, { wch: 14 }, { wch: 22 }];
+        XLSX.utils.book_append_sheet(wb, allowanceSheet, 'Allowance Amount');
+
+        XLSX.writeFile(wb, `Allowance_${label}_${monthAbbr}_${halfStr}.xlsx`, { compression: true });
+    }
+
+    /** Generate the two split Excel files (Old and New). */
+    async function generateNewOldFiles() {
+        if (!state.results) {
+            alert('Please run analysis first.');
+            return;
+        }
+        if (!state.siteJcFile) {
+            alert('Please upload the Old/New Reference File first.');
+            return;
+        }
+
+        const { monthName, half } = state.results;
+        const monthAbbr = monthName.slice(0, 3);
+        const halfStr   = half === 'first' ? 'First' : 'Second';
+
+        let siteJcMap;
+        try {
+            siteJcMap = await parseSiteJcMap();
+        } catch (err) {
+            alert(`Error reading reference file: ${err.message}`);
+            return;
+        }
+
+        if (siteJcMap.size === 0) {
+            alert(
+                'Could not read Old/New data from the reference file.\n' +
+                'Make sure it has "Site ID-JC" and "Old/New" columns.'
+            );
+            return;
+        }
+
+        const { oldPeople, newPeople, oldGrandTotal, newGrandTotal } =
+            computeSplitAllowances(state.filteredRows, siteJcMap);
+
+        const { oldRows, newRows } = buildSplitTrackingRows(state.filteredRows, siteJcMap);
+
+        buildSplitWorkbook(oldRows, oldPeople, oldGrandTotal, monthAbbr, halfStr, 'Old');
+        buildSplitWorkbook(newRows, newPeople, newGrandTotal, monthAbbr, halfStr, 'New');
+    }
+
     /** Apply bold + blue header style to a range of cells in a worksheet. */
     function styleHeaderRow(ws, rowIdx, colCount) {
         const hStyle = {
@@ -705,6 +993,35 @@ const AllowanceChecker = (() => {
             opt.textContent = name.slice(0, 3);
             if (i === now.getMonth()) opt.selected = true;
             sel.appendChild(opt);
+        });
+    }
+
+    /* ── Site ID-JC reference file rendering ────────────────── */
+    function renderSiteJcFile() {
+        const listEl   = $('allowanceSiteJcFileList');
+        const dropZone = $('allowanceSiteJcDropZone');
+
+        if (!state.siteJcFile) {
+            listEl.innerHTML = '<p class="no-files">No file uploaded yet</p>';
+            dropZone.classList.remove('has-files');
+            return;
+        }
+
+        dropZone.classList.add('has-files');
+        listEl.innerHTML = `
+            <div class="file-item">
+                <div class="file-item-name">
+                    <span>🗂</span>
+                    <span class="fname" title="${esc(state.siteJcFile.name)}">${esc(state.siteJcFile.name)}</span>
+                    <span class="file-status">✓</span>
+                </div>
+                <button class="file-remove" id="allowanceRemoveSiteJcBtn" title="Remove this file">✕</button>
+            </div>
+        `;
+
+        $('allowanceRemoveSiteJcBtn').addEventListener('click', () => {
+            state.siteJcFile = null;
+            renderSiteJcFile();
         });
     }
 
@@ -1053,13 +1370,16 @@ const AllowanceChecker = (() => {
     /* ── Reset ───────────────────────────────────────────────── */
     function reset() {
         state.masterFile   = null;
+        state.siteJcFile   = null;
         state.sheetRows    = [];
         state.filteredRows = [];
         state.masterJcSet  = new Set();
         state.results      = null;
 
         renderMasterFile();
+        renderSiteJcFile();
         $('allowanceMasterInput').value      = '';
+        $('allowanceSiteJcInput').value      = '';
         $('allowanceResultsSection').hidden  = true;
         $('allowanceProgressSection').hidden = true;
         clearIssues();
@@ -1080,7 +1400,18 @@ const AllowanceChecker = (() => {
             false
         );
 
+        FileHandler.setupDropZone(
+            $('allowanceSiteJcDropZone'),
+            $('allowanceSiteJcInput'),
+            (files) => {
+                state.siteJcFile = files[0];
+                renderSiteJcFile();
+            },
+            false
+        );
+
         $('allowanceDownloadBtn').addEventListener('click', generateExcel);
+        $('allowanceNewOldBtn').addEventListener('click', generateNewOldFiles);
     }
 
     return { init, reset };
