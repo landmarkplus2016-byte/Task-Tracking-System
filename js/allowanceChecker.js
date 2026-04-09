@@ -643,20 +643,70 @@ const AllowanceChecker = (() => {
     }
 
     /**
-     * Split filtered rows into Old and New subsets, adjusting the allowance
-     * value proportionally. Rows with no Old pairs are excluded from oldRows
-     * and vice versa.
+     * Split filtered rows into Old and New subsets.
+     * Site and JC fields are rebuilt to contain ONLY the pairs that belong
+     * to each category, so a row with "K3960 / K5402" where K3960 is New
+     * and K5402 is Old will produce:
+     *   Old row:  site="K5402",  jc=<jc2>, allowance = origAllow / 2
+     *   New row:  site="K3960",  jc=<jc1>, allowance = origAllow / 2
      */
     function buildSplitTrackingRows(filteredRows, siteJcMap) {
         const oldRows = [], newRows = [];
-        for (const row of filteredRows) {
-            const { oldCount, newCount, total } = classifyRowPairs(row, siteJcMap);
-            const origAllow = parseFloat(row.allowance) || 0;
-            const oldFrac   = total > 0 ? oldCount / total : 0;
-            const newFrac   = total > 0 ? newCount / total : 1;
 
-            if (oldFrac > 0) oldRows.push({ ...row, allowance: String(origAllow * oldFrac) });
-            if (newFrac > 0) newRows.push({ ...row, allowance: String(origAllow * newFrac) });
+        for (const row of filteredRows) {
+            const siteRaw   = (row.site || '').trim();
+            const jcRaw     = (row.jc   || '').trim();
+            const origAllow = parseFloat(row.allowance) || 0;
+
+            const sites = siteRaw ? siteRaw.split('/').map(s => s.trim()).filter(Boolean) : [];
+            const jcs   = jcRaw  ? jcRaw.split('/').map(s => s.trim()).filter(Boolean)   : [];
+            const n     = Math.min(sites.length, jcs.length);
+
+            if (n === 0) {
+                // No parseable pairs — classify the whole row and keep as-is
+                const { oldCount, newCount, total } = classifyRowPairs(row, siteJcMap);
+                const oldFrac = oldCount / (total || 1);
+                const newFrac = newCount / (total || 1);
+                if (oldFrac > 0) oldRows.push({ ...row, allowance: String(origAllow * oldFrac) });
+                if (newFrac > 0) newRows.push({ ...row, allowance: String(origAllow * newFrac) });
+                continue;
+            }
+
+            // Separate each pair into its category
+            const oldSites = [], oldJcs = [];
+            const newSites = [], newJcs = [];
+
+            for (let i = 0; i < n; i++) {
+                const isCctv = jcs[i].toUpperCase().includes('CCTV');
+                const combo  = `${sites[i]}-${jcs[i]}`.toLowerCase();
+                const val    = (siteJcMap.get(combo) || '').toLowerCase();
+                if (isCctv || val === 'old') {
+                    oldSites.push(sites[i]);
+                    oldJcs.push(jcs[i]);
+                } else {
+                    newSites.push(sites[i]);
+                    newJcs.push(jcs[i]);
+                }
+            }
+
+            const allowPerPair = origAllow / n;
+
+            if (oldSites.length > 0) {
+                oldRows.push({
+                    ...row,
+                    site:      oldSites.join(' / '),
+                    jc:        oldJcs.join(' / '),
+                    allowance: String(allowPerPair * oldSites.length),
+                });
+            }
+            if (newSites.length > 0) {
+                newRows.push({
+                    ...row,
+                    site:      newSites.join(' / '),
+                    jc:        newJcs.join(' / '),
+                    allowance: String(allowPerPair * newSites.length),
+                });
+            }
         }
         return { oldRows, newRows };
     }
