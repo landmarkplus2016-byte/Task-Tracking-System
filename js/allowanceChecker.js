@@ -46,12 +46,12 @@ const AllowanceChecker = (() => {
     ];
 
     const state = {
-        masterFile:    null,
-        siteJcFile:    null,    // optional reference file for New/Old split
-        sheetRows:     [],      // unified rows from all Google Sheets
-        filteredRows:  [],      // rows matching selected month + half
-        masterJcSet:   new Set(), // SiteID-JC values from master tracking tab
-        results:       null,
+        masterFile:      null,
+        sheetRows:       [],      // unified rows from all Google Sheets
+        filteredRows:    [],      // rows matching selected month + half
+        masterJcSet:     new Set(), // SiteID-JC values from master tracking tab
+        masterOldNewMap: new Map(), // SiteID-JC combo → 'Old' | 'New' | '' from master file
+        results:         null,
     };
 
     const $ = id => document.getElementById(id);
@@ -519,50 +519,23 @@ const AllowanceChecker = (() => {
     /* ── New/Old split helpers ───────────────────────────────── */
 
     /**
-     * Parse the uploaded Site ID-JC reference file (output from tab 3).
-     * Returns a Map: lowercased "SiteID-JC" combo → 'Old' | 'New' | ''
-     * Expects columns named "Site ID-JC" and "Old/New".
-     */
-    async function parseSiteJcMap() {
-        if (!state.siteJcFile) return new Map();
-
-        const sheets = await FileHandler.readFile(state.siteJcFile);
-        const sheet  = sheets[0];
-        if (!sheet) return new Map();
-
-        const norm     = h => (h || '').toLowerCase().replace(/[\s\-_/]/g, '');
-        const normHdrs = sheet.headers.map(norm);
-
-        // Find Site ID-JC column
-        let siteJcIdx = normHdrs.findIndex(h => h === 'siteidjc');
-        if (siteJcIdx === -1) siteJcIdx = normHdrs.findIndex(h => h.includes('siteid'));
-
-        // Find Old/New column
-        let oldNewIdx = normHdrs.findIndex(h => h === 'oldnew');
-        if (oldNewIdx === -1) oldNewIdx = normHdrs.findIndex(h => h.includes('old') && h.includes('new'));
-        if (oldNewIdx === -1) oldNewIdx = normHdrs.findIndex(h => h.includes('old'));
-
-        if (siteJcIdx === -1 || oldNewIdx === -1) return new Map();
-
-        const map = new Map();
-        for (const row of sheet.rows) {
-            const combo  = (row[siteJcIdx] ?? '').toString().trim();
-            const oldNew = (row[oldNewIdx] ?? '').toString().trim();
-            if (combo) map.set(combo.toLowerCase(), oldNew);
-        }
-        return map;
-    }
-
-    /**
      * For a single row, classify each site-JC pair as Old or New.
+     * Rules (applied in order per pair):
+     *   1. JC contains "CCTV" (case-insensitive) → always Old
+     *   2. Combo found in masterOldNewMap with value "Old" → Old
+     *   3. Everything else (not found, blank, "New") → New
      * Returns { oldCount, newCount, total }.
-     * Pairs not found in siteJcMap (or blank site/jc) → treated as New.
      */
     function classifyRowPairs(row, siteJcMap) {
         const siteRaw = (row.site || '').trim();
         const jcRaw   = (row.jc   || '').trim();
 
-        if (!siteRaw || !jcRaw) return { oldCount: 0, newCount: 1, total: 1 };
+        // No site/jc: treat whole row as one pair; CCTV → Old, else New
+        if (!siteRaw || !jcRaw) {
+            const isCctv = jcRaw.toUpperCase().includes('CCTV');
+            return isCctv ? { oldCount: 1, newCount: 0, total: 1 }
+                          : { oldCount: 0, newCount: 1, total: 1 };
+        }
 
         const sites = siteRaw.split('/').map(s => s.trim()).filter(Boolean);
         const jcs   = jcRaw.split('/').map(s => s.trim()).filter(Boolean);
@@ -572,9 +545,10 @@ const AllowanceChecker = (() => {
 
         let oldCount = 0, newCount = 0;
         for (let i = 0; i < n; i++) {
-            const combo = `${sites[i]}-${jcs[i]}`.toLowerCase();
-            const val   = (siteJcMap.get(combo) || '').toLowerCase();
-            if (val === 'old') oldCount++;
+            const isCctv = jcs[i].toUpperCase().includes('CCTV');
+            const combo  = `${sites[i]}-${jcs[i]}`.toLowerCase();
+            const val    = (siteJcMap.get(combo) || '').toLowerCase();
+            if (isCctv || val === 'old') oldCount++;
             else newCount++;   // 'new', blank, or not found → New
         }
 
@@ -764,35 +738,16 @@ const AllowanceChecker = (() => {
     }
 
     /** Generate the two split Excel files (Old and New). */
-    async function generateNewOldFiles() {
+    function generateNewOldFiles() {
         if (!state.results) {
             alert('Please run analysis first.');
             return;
         }
-        if (!state.siteJcFile) {
-            alert('Please upload the Old/New Reference File first.');
-            return;
-        }
 
         const { monthName, half } = state.results;
-        const monthAbbr = monthName.slice(0, 3);
-        const halfStr   = half === 'first' ? 'First' : 'Second';
-
-        let siteJcMap;
-        try {
-            siteJcMap = await parseSiteJcMap();
-        } catch (err) {
-            alert(`Error reading reference file: ${err.message}`);
-            return;
-        }
-
-        if (siteJcMap.size === 0) {
-            alert(
-                'Could not read Old/New data from the reference file.\n' +
-                'Make sure it has "Site ID-JC" and "Old/New" columns.'
-            );
-            return;
-        }
+        const monthAbbr  = monthName.slice(0, 3);
+        const halfStr    = half === 'first' ? 'First' : 'Second';
+        const siteJcMap  = state.masterOldNewMap;  // populated during runAnalysis()
 
         const { oldPeople, newPeople, oldGrandTotal, newGrandTotal } =
             computeSplitAllowances(state.filteredRows, siteJcMap);
@@ -932,15 +887,16 @@ const AllowanceChecker = (() => {
     /* ── Master tracking parser ──────────────────────────────── */
 
     /**
-     * Locate the "Tracking" tab in the master file and extract all
-     * values from the "SiteID-JC" column into a Set for fast lookup.
+     * Locate the "Tracking" tab in the master file and extract:
+     *   - jcSet:     Set of all SiteID-JC combos (lowercased) for JC validation
+     *   - oldNewMap: Map of combo (lowercase) → 'Old' | 'New' | '' for the split feature
      *
      * Tab matching:   exact name "tracking" → partial contains match
      * Column matching: normalised (spaces/dashes stripped) exact "siteidjc"
      *                  → any header that contains both "siteid" and "jc"
      *
      * @param  {Array}  masterSheets  Output of FileHandler.readFile()
-     * @returns {{ jcSet: Set, tabName: string|null, colName: string|null, error: string|null }}
+     * @returns {{ jcSet: Set, oldNewMap: Map, tabName: string|null, colName: string|null, error: string|null }}
      */
     function parseMasterTracking(masterSheets) {
         const lc = s => s.toLowerCase().trim();
@@ -951,7 +907,7 @@ const AllowanceChecker = (() => {
 
         if (!sheet) {
             return {
-                jcSet: new Set(), tabName: null, colName: null,
+                jcSet: new Set(), oldNewMap: new Map(), tabName: null, colName: null,
                 error: `Tab "Tracking" not found in master file. ` +
                        `Tabs available: ${masterSheets.map(s => `"${s.name}"`).join(', ')}`,
             };
@@ -966,21 +922,30 @@ const AllowanceChecker = (() => {
 
         if (colIdx === -1) {
             return {
-                jcSet: new Set(), tabName: sheet.name, colName: null,
+                jcSet: new Set(), oldNewMap: new Map(), tabName: sheet.name, colName: null,
                 error: `Column "SiteID-JC" not found in "${sheet.name}" tab. ` +
                        `Headers found: ${sheet.headers.filter(Boolean).slice(0, 10).join(', ')}`,
             };
         }
 
-        // Build a Set of every "SiteID-JC" combo in the master, lowercased.
-        // Values in the master column look like "CABH185-MK01", "R5061-MK10", etc.
-        const jcSet = new Set();
+        // Find the 'Old/New' column for the split feature
+        let oldNewIdx = normHeaders.indexOf('oldnew');
+        if (oldNewIdx === -1) oldNewIdx = normHeaders.findIndex(h => h.includes('old') && h.includes('new'));
+
+        // Build Set (for JC validation) and Map (for Old/New split) together
+        const jcSet    = new Set();
+        const oldNewMap = new Map();
         for (const row of sheet.rows) {
             const val = (row[colIdx] ?? '').toString().trim();
-            if (val) jcSet.add(val.toLowerCase());
+            if (!val) continue;
+            const key = val.toLowerCase();
+            jcSet.add(key);
+            if (oldNewIdx !== -1) {
+                oldNewMap.set(key, (row[oldNewIdx] ?? '').toString().trim());
+            }
         }
 
-        return { jcSet, tabName: sheet.name, colName: sheet.headers[colIdx], error: null };
+        return { jcSet, oldNewMap, tabName: sheet.name, colName: sheet.headers[colIdx], error: null };
     }
 
     /* ── Month dropdown ──────────────────────────────────────── */
@@ -993,35 +958,6 @@ const AllowanceChecker = (() => {
             opt.textContent = name.slice(0, 3);
             if (i === now.getMonth()) opt.selected = true;
             sel.appendChild(opt);
-        });
-    }
-
-    /* ── Site ID-JC reference file rendering ────────────────── */
-    function renderSiteJcFile() {
-        const listEl   = $('allowanceSiteJcFileList');
-        const dropZone = $('allowanceSiteJcDropZone');
-
-        if (!state.siteJcFile) {
-            listEl.innerHTML = '<p class="no-files">No file uploaded yet</p>';
-            dropZone.classList.remove('has-files');
-            return;
-        }
-
-        dropZone.classList.add('has-files');
-        listEl.innerHTML = `
-            <div class="file-item">
-                <div class="file-item-name">
-                    <span>🗂</span>
-                    <span class="fname" title="${esc(state.siteJcFile.name)}">${esc(state.siteJcFile.name)}</span>
-                    <span class="file-status">✓</span>
-                </div>
-                <button class="file-remove" id="allowanceRemoveSiteJcBtn" title="Remove this file">✕</button>
-            </div>
-        `;
-
-        $('allowanceRemoveSiteJcBtn').addEventListener('click', () => {
-            state.siteJcFile = null;
-            renderSiteJcFile();
         });
     }
 
@@ -1249,14 +1185,15 @@ const AllowanceChecker = (() => {
 
             /* ── Step 1b: Parse master Tracking tab ──────────── */
             setProgress(8, 'Parsing master tracking tab…');
-            const { jcSet, tabName, colName, error: masterError } =
+            const { jcSet, oldNewMap, tabName, colName, error: masterError } =
                 parseMasterTracking(masterSheets);
 
             if (masterError) {
                 generalIssues.push(masterError);
             } else {
-                state.masterJcSet = jcSet;
-                console.log(`Master tracking: tab "${tabName}", column "${colName}", ${jcSet.size} combos`);
+                state.masterJcSet     = jcSet;
+                state.masterOldNewMap = oldNewMap;
+                console.log(`Master tracking: tab "${tabName}", column "${colName}", ${jcSet.size} combos, ${oldNewMap.size} Old/New entries`);
             }
 
             /* ── Step 2: Fetch coordinator Google Sheets ─────── */
@@ -1369,17 +1306,15 @@ const AllowanceChecker = (() => {
 
     /* ── Reset ───────────────────────────────────────────────── */
     function reset() {
-        state.masterFile   = null;
-        state.siteJcFile   = null;
-        state.sheetRows    = [];
-        state.filteredRows = [];
-        state.masterJcSet  = new Set();
-        state.results      = null;
+        state.masterFile      = null;
+        state.sheetRows       = [];
+        state.filteredRows    = [];
+        state.masterJcSet     = new Set();
+        state.masterOldNewMap = new Map();
+        state.results         = null;
 
         renderMasterFile();
-        renderSiteJcFile();
         $('allowanceMasterInput').value      = '';
-        $('allowanceSiteJcInput').value      = '';
         $('allowanceResultsSection').hidden  = true;
         $('allowanceProgressSection').hidden = true;
         clearIssues();
@@ -1396,16 +1331,6 @@ const AllowanceChecker = (() => {
                 state.masterFile = files[0];
                 renderMasterFile();
                 runAnalysis();
-            },
-            false
-        );
-
-        FileHandler.setupDropZone(
-            $('allowanceSiteJcDropZone'),
-            $('allowanceSiteJcInput'),
-            (files) => {
-                state.siteJcFile = files[0];
-                renderSiteJcFile();
             },
             false
         );
