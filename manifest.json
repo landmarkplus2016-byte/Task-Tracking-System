@@ -1,6 +1,6 @@
 {
-    "name": "Task Tracking System",
-    "short_name": "Task Tracker",
+    "name": "Documents Control System",
+    "short_name": "Docs Control",
     "description": "Telecom Department Coordinator Sheet Comparator",
     "start_url": ".",
     "display": "standalone",

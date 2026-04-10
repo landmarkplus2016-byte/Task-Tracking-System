@@ -97,14 +97,15 @@ against a master tracking file.
     Google Sheet
   - `"Salaries"` tab: Name, Account Number, Salary, Salary/Day for
     each team member
-- Master Tracking Excel file — uploaded fresh at the start of
-  each analysis run
+- Master Tracking Excel file (the Site ID-JC file) — uploaded fresh
+  at the start of each analysis run. Must contain a sheet whose name
+  includes "Tracking" with columns `SiteID-JC` and `Old/New`.
 
 **Flow:**
 1. On startup, reads `list.xlsx` to load Google Sheet URLs and
    salary data into app state
 2. User selects Month and Month Half (First / Second) from dropdowns
-3. User uploads the Master Tracking Excel file
+3. User uploads the Master Tracking Excel file (Site ID-JC file)
 4. App fetches and combines all Google Sheets from the URLs list
    using `{ cache: 'no-store' }` so every run hits the network fresh
 5. Combined data is filtered by selected Month + Month Half
@@ -120,11 +121,16 @@ against a master tracking file.
      file, and flags missing or mismatched combos
 7. If errors exist, they are shown in the Errors & Warnings panel
    before output generation
-8. Output is a downloadable Excel file named
-   `Allowance_Report_[Month]_[Half].xlsx` with tabs:
-   - **Total Tracking**: all combined rows from Google Sheets
-   - **Allowance Amount**: two tables — Team (Name, Total Amount,
-     Account Number) and Driver (Name, Amount)
+8. Two download actions are available:
+   - **Download Output** — the original complete report named
+     `Allowance_Report_[Month]_[Half].xlsx` with tabs:
+     - **[Month] - [Half]**: filtered tracking rows
+     - **Allowance Amount**: two tables — Team (Name, Total Amount,
+       Account Number) and Driver (Name, Amount)
+   - **New/Old Files** — generates two separate workbooks with the
+     same structure, splitting rows by Old/New classification:
+     - `Allowance_Old_[Month]_[Half].xlsx`
+     - `Allowance_New_[Month]_[Half].xlsx`
 
 **Results UI:**
 - Stat cards row: Sheets fetched · Total rows · Filtered count ·
@@ -140,6 +146,18 @@ against a master tracking file.
 - Site-JC pairing is positional (index-based)
 - All errors must appear before output is generated
 - Days worked = unique calendar days (Set-based), not row count
+
+**New/Old split rules (applied per site-JC pair, not per row):**
+- JC contains "CCTV" (case-insensitive) → **always Old**, highest priority
+- Combo found in master's `Old/New` column with value "Old" → Old
+- Everything else (not found, blank, "New") → New
+- Mixed rows (e.g. `K3960 / K5402` where one is Old and one is New)
+  are **split into separate rows** per file — Site and JC columns are
+  rebuilt to contain only the pairs belonging to that file. The allowance
+  is divided proportionally (`origAllow / totalPairs × pairsInThisFile`).
+  A row never bleeds the wrong site into the wrong file.
+- The `masterOldNewMap` is populated by `parseMasterTracking()` at the
+  same time as `masterJcSet` — no second file upload needed.
 
 ---
 
@@ -234,6 +252,28 @@ Two layers of caching were silently serving stale CSV data:
 (0,1,0), causing header cells to stay left-aligned even when the class
 sets `text-align: center`. Fixed by scoping the rule to
 `.allowance-table .allowance-th-num` (0,2,0).
+
+### Allowance Checker: New/Old split — pair-level not row-level
+The initial implementation copied the entire row (with all sites) into
+both Old and New files for mixed rows. This caused a "New" site like
+K3960 to appear in the Old file when paired with an Old site. Fixed in
+`buildSplitTrackingRows()`: each site-JC pair is classified individually,
+and the `site` and `jc` fields of the output row are rebuilt to contain
+only the pairs that belong to that file. The allowance is divided as
+`origAllow / totalPairs × countInThisFile`.
+
+### Allowance Checker: CCTV → always Old
+Any JC value containing "CCTV" (case-insensitive) is unconditionally
+classified as Old in the New/Old split, regardless of what the master
+file's Old/New column says. This rule takes priority over the lookup.
+Implemented inside `classifyRowPairs()` as the first check per pair.
+
+### Allowance Checker: Old/New map comes from the master file
+The `Old/New` column is read from the same Tracking tab of the Site
+ID-JC master file that is already uploaded for JC validation.
+`parseMasterTracking()` now returns both `jcSet` and `oldNewMap` in one
+pass. No second file upload is required — the "New/Old Files" button
+works as soon as `runAnalysis()` has completed.
 
 ### Site ID-JC: date handling
 - All source dates are normalised to `dd-mmm-yyyy` on output regardless

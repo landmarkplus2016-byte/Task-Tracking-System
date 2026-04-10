@@ -1,5 +1,5 @@
 /**
- * sw.js — Service Worker for Task Tracking System
+ * sw.js — Service Worker for Documents Control System
  * Caches static assets for offline use.
  */
 

@@ -93,7 +93,7 @@ const ExcelExport = (() => {
         const now = new Date();
 
         const rows = [
-            ['Task Tracking System – Comparison Report'],
+            ['Documents Control System – Comparison Report'],
             [],
             ['Generated On',             now.toLocaleString()],
             ['ID Column Used',           coordinatorData.idColumnOriginal || options.idColumnName],
