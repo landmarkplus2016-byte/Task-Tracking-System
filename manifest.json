@@ -1,6 +1,6 @@
 {
-    "name": "Documents Control System",
-    "short_name": "Docs Control",
+    "name": "Tracking-Financial-Controller",
+    "short_name": "TFC",
     "description": "Telecom Department Coordinator Sheet Comparator",
     "start_url": ".",
     "display": "standalone",
