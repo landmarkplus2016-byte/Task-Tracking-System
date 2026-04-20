@@ -324,12 +324,10 @@ const AllowanceChecker = (() => {
         const teamSalaryMap   = buildSalaryMap(AppData.getSalaries());
         const driverSalaryMap = buildSalaryMap(AppData.getDriverSalaries());
 
-        // Key = normName(canonical name) so all spelling variants of the same
-        // person merge into one accumulator entry.
         const personMap    = new Map();
         const calcWarnings = [];
-        const calcErrors   = [];          // names not found in list.xlsx at all
-        const seenNames    = new Set();   // suppress duplicate error/warning messages
+        // normKey → { rawName, listType: 'Team'|'Driver', sources: Set<string> }
+        const missingMap   = new Map();
         let   grandTotal   = 0;
 
         const TEAM_FIELDS_LOCAL = ['engineer', 'tech1', 'tech2', 'tech3'];
@@ -339,6 +337,7 @@ const AllowanceChecker = (() => {
             const hasVacation        = (row.vacationAllowance || '').trim() !== '';
             let   rowVacationTotal   = 0;
             let   rowMemberCount     = 0;
+            const source             = row.__source__ || '(unknown)';
 
             /* ── Team fields (engineer / tech1-3) ───────────── */
             for (const field of TEAM_FIELDS_LOCAL) {
@@ -348,18 +347,16 @@ const AllowanceChecker = (() => {
                 rowMemberCount++;
                 const sal         = lookupSalary(teamSalaryMap, rawName);
                 const displayName = sal ? sal.name : rawName;
-                // Use canonical key so "mostafa ahmed" and "Mostafa Ahmed Mohamed"
-                // both resolve to the same personMap entry.
                 const normKey     = normName(displayName);
 
-                if (!personMap.has(normKey)) {
-                    if (!sal && !seenNames.has(normKey)) {
-                        seenNames.add(normKey);
-                        calcErrors.push(
-                            `"${rawName}" was not found in the Team Salaries list — ` +
-                            `please add them to list.xlsx.`
-                        );
+                if (!sal) {
+                    if (!missingMap.has(normKey)) {
+                        missingMap.set(normKey, { rawName, listType: 'Team', sources: new Set() });
                     }
+                    missingMap.get(normKey).sources.add(source);
+                }
+
+                if (!personMap.has(normKey)) {
                     personMap.set(normKey, {
                         name:           displayName,
                         rows:           0,
@@ -370,7 +367,6 @@ const AllowanceChecker = (() => {
                         isTeam:         true,
                     });
                 } else {
-                    // If first seen as driver, upgrade to team
                     personMap.get(normKey).isTeam = true;
                 }
 
@@ -379,12 +375,9 @@ const AllowanceChecker = (() => {
                 person.daysWorked.add((row.day || '').trim());
                 person.allowanceTotal += allowancePerPerson;
 
-                if (hasVacation) {
-                    if (sal && sal.dailySalary > 0) {
-                        person.vacationTotal += sal.dailySalary;
-                        rowVacationTotal     += sal.dailySalary;
-                    }
-                    // No extra warning when not found — calcErrors already covers it
+                if (hasVacation && sal && sal.dailySalary > 0) {
+                    person.vacationTotal += sal.dailySalary;
+                    rowVacationTotal     += sal.dailySalary;
                 }
             }
 
@@ -397,14 +390,14 @@ const AllowanceChecker = (() => {
                 const displayName = sal ? sal.name : drvRaw;
                 const normKey     = normName(displayName);
 
-                if (!personMap.has(normKey)) {
-                    if (!sal && !seenNames.has(normKey)) {
-                        seenNames.add(normKey);
-                        calcErrors.push(
-                            `"${drvRaw}" was not found in the Driver Salaries list — ` +
-                            `please add them to list.xlsx.`
-                        );
+                if (!sal) {
+                    if (!missingMap.has(normKey)) {
+                        missingMap.set(normKey, { rawName: drvRaw, listType: 'Driver', sources: new Set() });
                     }
+                    missingMap.get(normKey).sources.add(source);
+                }
+
+                if (!personMap.has(normKey)) {
                     personMap.set(normKey, {
                         name:           displayName,
                         rows:           0,
@@ -429,6 +422,17 @@ const AllowanceChecker = (() => {
 
             grandTotal += (allowancePerPerson * rowMemberCount) + rowVacationTotal;
         }
+
+        // Build pre-HTML error strings (same style as checkRepetitions)
+        const calcErrors = Array.from(missingMap.values())
+            .sort((a, b) => a.rawName.localeCompare(b.rawName))
+            .map(({ rawName, listType, sources }) => {
+                const srcSpans = [...sources].sort()
+                    .map(s => `<span class="rep-entry">${esc(s)}</span>`)
+                    .join('');
+                return `<span class="rep-header"><strong>${esc(rawName)}</strong> was not found in the ${listType} Salaries list — ` +
+                       `found in ${sources.size} sheet${sources.size > 1 ? 's' : ''}:</span> ${srcSpans}`;
+            });
 
         const people = Array.from(personMap.values())
             .map(p => ({ ...p, daysWorked: p.daysWorked.size, grandTotal: p.allowanceTotal + p.vacationTotal }))
@@ -1076,14 +1080,14 @@ const AllowanceChecker = (() => {
         }
 
         if (missingNames.length) {
-            $('allowanceMissingNamesList').innerHTML = missingNames.map(e => `<li>${esc(e)}</li>`).join('');
+            $('allowanceMissingNamesList').innerHTML = missingNames.map(e => `<li>${e}</li>`).join('');
             $('allowanceMissingNamesSection').hidden = false;
         } else {
             $('allowanceMissingNamesSection').hidden = true;
         }
 
         if (jcWarnings.length) {
-            $('allowanceWarningsList').innerHTML = jcWarnings.map(w => `<li>${esc(w)}</li>`).join('');
+            $('allowanceWarningsList').innerHTML = jcWarnings.map(w => `<li>${w}</li>`).join('');
             $('allowanceWarningsSection').hidden = false;
         } else {
             $('allowanceWarningsSection').hidden = true;
@@ -1288,15 +1292,17 @@ const AllowanceChecker = (() => {
             if (jcSet.size > 0 && filteredRows.length > 0) {
                 setProgress(90, 'Comparing SiteID-JC combos against master tracking…');
 
-                const missingCombos = new Map();  // lowercase combo → display string
+                // lowercase combo → { display: string, sources: Set<string> }
+                const missingCombos = new Map();
 
                 for (const row of filteredRows) {
                     const siteRaw = (row.site || '').trim();
                     const jcRaw   = (row.jc   || '').trim();
                     if (!siteRaw || !jcRaw) continue;
 
-                    const sites = siteRaw.split('/').map(s => s.trim()).filter(Boolean);
-                    const jcs   = jcRaw.split('/').map(s => s.trim()).filter(Boolean);
+                    const source = row.__source__ || '(unknown)';
+                    const sites  = siteRaw.split('/').map(s => s.trim()).filter(Boolean);
+                    const jcs    = jcRaw.split('/').map(s => s.trim()).filter(Boolean);
 
                     // Count mismatch → general issues (data problem in the sheet)
                     if (sites.length !== jcs.length) {
@@ -1313,18 +1319,31 @@ const AllowanceChecker = (() => {
                     for (let i = 0; i < sites.length; i++) {
                         const combo      = `${sites[i]}-${jcs[i]}`;
                         const comboLower = combo.toLowerCase();
-                        if (!jcSet.has(comboLower) && !missingCombos.has(comboLower)) {
-                            missingCombos.set(comboLower, combo);
+                        if (!jcSet.has(comboLower)) {
+                            if (!missingCombos.has(comboLower)) {
+                                missingCombos.set(comboLower, { display: combo, sources: new Set() });
+                            }
+                            missingCombos.get(comboLower).sources.add(source);
                         }
                     }
                 }
 
                 if (missingCombos.size > 0) {
-                    const list = [...missingCombos.values()].sort().join(', ');
-                    jcWarnings.push(
-                        `${missingCombos.size} SiteID-JC combo(s) not found in master tracking ` +
-                        `(tab: "${tabName}", column: "${colName}"): ${list}`
-                    );
+                    const sorted = [...missingCombos.values()]
+                        .sort((a, b) => a.display.localeCompare(b.display));
+
+                    const header = `<span class="rep-header">${missingCombos.size} SiteID-JC combo(s) not found in master tracking ` +
+                                   `(tab: &quot;${esc(tabName)}&quot;, column: &quot;${esc(colName)}&quot;):</span>`;
+
+                    const comboEntries = sorted.map(({ display, sources }) => {
+                        const srcSpans = [...sources].sort()
+                            .map(s => `<span class="rep-entry">${esc(s)}</span>`)
+                            .join('');
+                        return `<span class="rep-header"><strong>${esc(display)}</strong> — in ` +
+                               `${sources.size} sheet${sources.size > 1 ? 's' : ''}:</span> ${srcSpans}`;
+                    }).join('');
+
+                    jcWarnings.push(header + comboEntries);
                 }
             }
 
