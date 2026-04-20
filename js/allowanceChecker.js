@@ -1294,13 +1294,22 @@ const AllowanceChecker = (() => {
 
                 // lowercase combo → { display: string, sources: Set<string> }
                 const missingCombos = new Map();
+                // source → [{ site, day }]  for rows that have a site but no JC
+                const missingJcRows = new Map();
 
                 for (const row of filteredRows) {
                     const siteRaw = (row.site || '').trim();
                     const jcRaw   = (row.jc   || '').trim();
-                    if (!siteRaw || !jcRaw) continue;
+                    if (!siteRaw) continue;
 
                     const source = row.__source__ || '(unknown)';
+
+                    if (!jcRaw) {
+                        if (!missingJcRows.has(source)) missingJcRows.set(source, []);
+                        missingJcRows.get(source).push({ site: siteRaw, day: (row.day || '').trim() });
+                        continue;
+                    }
+
                     const sites  = siteRaw.split('/').map(s => s.trim()).filter(Boolean);
                     const jcs    = jcRaw.split('/').map(s => s.trim()).filter(Boolean);
 
@@ -1344,6 +1353,21 @@ const AllowanceChecker = (() => {
                     }).join('');
 
                     jcWarnings.push(header + comboEntries);
+                }
+
+                if (missingJcRows.size > 0) {
+                    const total = [...missingJcRows.values()].reduce((s, a) => s + a.length, 0);
+                    const header2 = `<span class="rep-header">${total} row${total > 1 ? 's' : ''} ` +
+                                    `with a site but <strong>no JC</strong>:</span>`;
+                    const sheetEntries = [...missingJcRows.entries()]
+                        .sort(([a], [b]) => a.localeCompare(b))
+                        .map(([src, rows]) => {
+                            const rowSpans = rows
+                                .map(r => `<span class="rep-entry">${esc(r.site)}${r.day ? ` / Day ${esc(r.day)}` : ''}</span>`)
+                                .join('');
+                            return `<span class="rep-header"><strong>${esc(src)}</strong> — ${rows.length} row${rows.length > 1 ? 's' : ''}:</span> ${rowSpans}`;
+                        }).join('');
+                    jcWarnings.push(header2 + sheetEntries);
                 }
             }
 
