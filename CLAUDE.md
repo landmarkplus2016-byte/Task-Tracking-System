@@ -195,7 +195,7 @@ These are hardcoded — there is no settings UI.
 - `sw.js` caches all static assets for offline use
 - **Always bump the cache version string in `sw.js` before
   pushing any update**
-- Current cache version: `task-tracker-v2.171`
+- Current cache version: `task-tracker-v2.174`
 - Version format: always two digits after the dot (e.g. `v2.10`,
   `v2.11`) — never single digit minor (not `v2.9`)
 
@@ -274,6 +274,27 @@ ID-JC master file that is already uploaded for JC validation.
 `parseMasterTracking()` now returns both `jcSet` and `oldNewMap` in one
 pass. No second file upload is required — the "New/Old Files" button
 works as soon as `runAnalysis()` has completed.
+
+### Allowance Checker: error boxes show coordinator source context
+Missing Names and Missing Job Codes boxes follow the same format as
+Repeated Names — each entry shows which coordinator sheet(s) triggered it.
+
+**Missing Names** (`computeAllowances()`): replaced the `seenNames` Set
+(which suppressed after first occurrence) with a `missingMap` that
+accumulates every source sheet where the name appears. Errors are built
+as pre-HTML strings at the end and rendered without escaping (same as
+`repeatedErrors`). Format: `"Name" was not found in X Salaries list —
+found in N sheets: [Sheet A] [Sheet B]`.
+
+**Missing Job Codes** (`runAnalysis()`): `missingCombos` now stores
+`{ display, sources: Set }` instead of just the display string. The
+warning is pre-HTML, showing each combo with its source sheets.
+
+**Site with no JC** (`runAnalysis()`): rows where `site` is non-empty
+but `jc` is empty were previously silently skipped (`!siteRaw || !jcRaw`).
+Now collected into `missingJcRows` (Map: source → `[{ site, day }]`) and
+rendered as a separate item in the Missing Job Codes box. Format:
+`"N rows with a site but no JC: [Sheet A] — K rows: [Site / Day] …"`.
 
 ### Site ID-JC: date handling
 - All source dates are normalised to `dd-mmm-yyyy` on output regardless
