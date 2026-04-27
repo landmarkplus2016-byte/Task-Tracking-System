@@ -127,10 +127,14 @@ against a master tracking file.
      - **[Month] - [Half]**: filtered tracking rows
      - **Allowance Amount**: two tables — Team (Name, Total Amount,
        Account Number) and Driver (Name, Amount)
+     - **Per Person**: one row per team member per source row,
+       sectioned by role (see Per Person tab below)
    - **New/Old Files** — generates two separate workbooks with the
      same structure, splitting rows by Old/New classification:
      - `Allowance_Old_[Month]_[Half].xlsx`
      - `Allowance_New_[Month]_[Half].xlsx`
+     - Each workbook also contains a **Per Person** tab scoped to
+       its Old or New rows only
 
 **Results UI:**
 - Stat cards row: Sheets fetched · Total rows · Filtered count ·
@@ -139,6 +143,22 @@ against a master tracking file.
   Utilization % (`Math.ceil(days/13×100)`). Team members only — drivers
   excluded. Sorted by days worked descending, then alphabetically.
 - Data Sources table: rows loaded vs matched per coordinator sheet
+
+**Per Person tab** (present in all Allowance Checker workbooks):
+- Expands each tracking row into one row per non-empty team member
+- Columns: Month, Day, Month Half, Coordinator, Site, Area, Project,
+  Sub Project, Name, Allowance, Vacation Allowance, Work Details, JC
+  (Start Time, End Time, and Role are intentionally excluded)
+- Vacation Allowance column shows the person's actual daily salary
+  amount (looked up from `list.xlsx` salary map) — blank when no vacation
+- Layout is sectioned by role in order: **Engineer** → **Technicians**
+  (Tech-1, then Tech-2, then Tech-3) → **Driver**. Each section has an
+  orange header row. Empty sections are skipped entirely.
+- Within each section, employees are sorted alphabetically. Each employee
+  gets their own blue column-header row, data rows sorted by day, and a
+  green total row showing `"Name — Total"` with summed Allowance and
+  Vacation Allowance. A blank spacer separates each employee group.
+- Built by `buildPerPersonSheet()` in `allowanceChecker.js`
 
 **Key rules:**
 - Empty team member fields = not counted (truly absent, not zero)
@@ -195,7 +215,7 @@ These are hardcoded — there is no settings UI.
 - `sw.js` caches all static assets for offline use
 - **Always bump the cache version string in `sw.js` before
   pushing any update**
-- Current cache version: `task-tracker-v2.174`
+- Current cache version: `task-tracker-v2.177`
 - Version format: always two digits after the dot (e.g. `v2.10`,
   `v2.11`) — never single digit minor (not `v2.9`)
 
@@ -302,3 +322,21 @@ rendered as a separate item in the Missing Job Codes box. Format:
 - The Old/New cutoff uses `new Date(2026, 0, 1)` — local-time
   constructor — not `new Date('2026-01-01')` which is UTC and would
   misclassify Jan 1 as "Old" in UTC+ timezones (e.g. Egypt UTC+2/+3).
+
+### Allowance Checker: Per Person tab — role sections, not name groups
+The Per Person tab groups rows by **role first, then by person** (not
+alphabetically across all roles). This means the same person can appear
+in two sections if they work as both Tech-1 and Tech-2 in different rows
+— each (role, name) combination is its own group. Section order is fixed:
+Engineer → Technicians (Tech-1/2/3) → Driver. The Technicians section
+covers all three tech roles under one orange header with Tech-1 groups
+listed before Tech-2 and Tech-3.
+
+The Vacation Allowance column in this tab resolves to the actual EGP
+amount (each person's `dailySalary` from `list.xlsx`) rather than
+copying the raw flag text from the source sheet. If the salary lookup
+fails (name not in list), the vacation amount is 0/blank. The total row
+sums both the Allowance and Vacation Allowance columns independently.
+
+Start Time, End Time, and Role columns are excluded from this tab by
+design — they add noise without value in the per-person view.
