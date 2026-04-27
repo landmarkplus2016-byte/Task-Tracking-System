@@ -815,74 +815,147 @@ const AllowanceChecker = (() => {
         buildSplitWorkbook(newRows, newPeople, newGrandTotal, monthAbbr, halfStr, 'New');
     }
 
-    /** Build a per-person breakdown sheet: one row per team member per source row, grouped by name with subtotals. */
+    /** Build a per-person breakdown sheet: sectioned by role, each person gets their own header + rows + total. */
     function buildPerPersonSheet(trackingRows) {
-        const ROLE_LABELS = { engineer: 'Engineer', tech1: 'Tech-1', tech2: 'Tech-2', tech3: 'Tech-3', driver: 'Driver' };
-        const PERSON_FIELDS = ['engineer', 'tech1', 'tech2', 'tech3', 'driver'];
+        const teamSalaryMap   = buildSalaryMap(AppData.getSalaries());
+        const driverSalaryMap = buildSalaryMap(AppData.getDriverSalaries());
 
-        const personGroups = new Map(); // normKey → { displayName, entries[] }
+        const ROLE_LABELS = { engineer: 'Engineer', tech1: 'Tech-1', tech2: 'Tech-2', tech3: 'Tech-3', driver: 'Driver' };
+
+        // One Map per role: normKey → { displayName, entries[] }
+        const roleGroups = new Map([
+            ['engineer', new Map()],
+            ['tech1',    new Map()],
+            ['tech2',    new Map()],
+            ['tech3',    new Map()],
+            ['driver',   new Map()],
+        ]);
 
         for (const row of trackingRows) {
-            const allowance = parseFloat(row.allowance) || 0;
-            for (const field of PERSON_FIELDS) {
+            const allowance   = parseFloat(row.allowance) || 0;
+            const hasVacation = (row.vacationAllowance || '').trim() !== '';
+
+            for (const field of ['engineer', 'tech1', 'tech2', 'tech3', 'driver']) {
                 const rawName = (row[field] || '').trim();
                 if (!rawName) continue;
-                const key = normName(rawName);
-                if (!personGroups.has(key)) personGroups.set(key, { displayName: rawName, entries: [] });
-                personGroups.get(key).entries.push({
+
+                const isDriver    = field === 'driver';
+                const sal         = isDriver
+                    ? (lookupSalary(driverSalaryMap, rawName) || lookupSalary(teamSalaryMap, rawName))
+                    : lookupSalary(teamSalaryMap, rawName);
+                const displayName = sal ? sal.name : rawName;
+                const key         = normName(displayName);
+                const vacAmt      = (hasVacation && sal && sal.dailySalary > 0) ? sal.dailySalary : 0;
+
+                const group = roleGroups.get(field);
+                if (!group.has(key)) group.set(key, { displayName, entries: [] });
+                group.get(key).entries.push({
                     month: row.month, day: row.day, monthHalf: row.monthHalf,
                     coordinator: row.coordinator, site: row.site, area: row.area,
                     startTime: row.startTime, endTime: row.endTime,
                     project: row.project, subProject: row.subProject,
-                    role: ROLE_LABELS[field], allowance,
-                    vacationAllowance: row.vacationAllowance, workDetails: row.workDetails, jc: row.jc,
+                    role: ROLE_LABELS[field], allowance, vacAmt,
+                    workDetails: row.workDetails, jc: row.jc,
                 });
             }
         }
 
-        const headers = [
+        const HEADERS  = [
             'Month', 'Day', 'Month Half', 'Coordinator', 'Site', 'Area',
-            'Start Time', 'End Time', 'Project', 'Sub Project',
-            'Name', 'Role', 'Allowance', 'Vacation Allowance', 'Work Details', 'JC',
+            'Project', 'Sub Project',
+            'Name', 'Allowance', 'Vacation Allowance', 'Work Details', 'JC',
         ];
+        const N        = HEADERS.length;
+        const COL_NAME  = 8, COL_ALLOW = 9, COL_VAC = 10;
 
-        const aoa = [headers];
-        const totalRowIndices = [];
+        const aoa              = [];
+        const sectionIndices   = [];  // orange section-label rows
+        const colHeaderIndices = [];  // blue column-header rows (one per employee)
+        const totalIndices     = [];  // green total rows
 
-        const sortedGroups = [...personGroups.values()]
-            .sort((a, b) => a.displayName.localeCompare(b.displayName));
-
-        for (const { displayName, entries } of sortedGroups) {
-            entries.sort((a, b) => (Number(a.day) - Number(b.day)) || String(a.day).localeCompare(String(b.day)));
-
-            for (const e of entries) {
-                aoa.push([
-                    e.month, e.day, e.monthHalf, e.coordinator, e.site, e.area,
-                    e.startTime, e.endTime, e.project, e.subProject,
-                    displayName, e.role, e.allowance, e.vacationAllowance, e.workDetails, e.jc,
-                ]);
-            }
-
-            const total = entries.reduce((s, e) => s + e.allowance, 0);
-            const totalRow = new Array(headers.length).fill('');
-            totalRow[10] = displayName;
-            totalRow[11] = 'Total';
-            totalRow[12] = total;
-            totalRowIndices.push(aoa.length);
-            aoa.push(totalRow);
-            aoa.push(new Array(headers.length).fill(''));
+        function hasAny(roleKey) {
+            return [...roleGroups.get(roleKey).values()].some(g => g.entries.length > 0);
         }
 
-        const ws = XLSX.utils.aoa_to_sheet(aoa);
-        styleHeaderRow(ws, 0, headers.length);
+        function addSectionLabel(label) {
+            const row = new Array(N).fill('');
+            row[0] = label;
+            sectionIndices.push(aoa.length);
+            aoa.push(row);
+        }
 
+        function addRoleGroup(roleKey) {
+            const sorted = [...roleGroups.get(roleKey).values()]
+                .filter(g => g.entries.length > 0)
+                .sort((a, b) => a.displayName.localeCompare(b.displayName));
+
+            for (const { displayName, entries } of sorted) {
+                entries.sort((a, b) =>
+                    (Number(a.day) - Number(b.day)) || String(a.day).localeCompare(String(b.day))
+                );
+
+                // Column headers for this employee
+                colHeaderIndices.push(aoa.length);
+                aoa.push([...HEADERS]);
+
+                // Data rows
+                for (const e of entries) {
+                    aoa.push([
+                        e.month, e.day, e.monthHalf, e.coordinator, e.site, e.area,
+                        e.project, e.subProject,
+                        displayName, e.allowance,
+                        e.vacAmt > 0 ? e.vacAmt : '',
+                        e.workDetails, e.jc,
+                    ]);
+                }
+
+                // Total row (allowance + vacation)
+                const totalAllow = entries.reduce((s, e) => s + e.allowance, 0);
+                const totalVac   = entries.reduce((s, e) => s + e.vacAmt,    0);
+                const totalRow   = new Array(N).fill('');
+                totalRow[COL_NAME]  = displayName + ' — Total';
+                totalRow[COL_ALLOW] = totalAllow;
+                if (totalVac > 0) totalRow[COL_VAC] = totalVac;
+                totalIndices.push(aoa.length);
+                aoa.push(totalRow);
+                aoa.push(new Array(N).fill(''));  // spacer
+            }
+        }
+
+        if (hasAny('engineer')) { addSectionLabel('Engineer');     addRoleGroup('engineer'); }
+        if (['tech1','tech2','tech3'].some(k => hasAny(k))) {
+            addSectionLabel('Technicians');
+            addRoleGroup('tech1'); addRoleGroup('tech2'); addRoleGroup('tech3');
+        }
+        if (hasAny('driver'))   { addSectionLabel('Driver');       addRoleGroup('driver');   }
+
+        const ws = XLSX.utils.aoa_to_sheet(aoa);
+
+        // Section labels — orange background
+        const sectionStyle = {
+            font:      { bold: true, sz: 12, color: { rgb: 'FFFFFF' } },
+            fill:      { fgColor: { rgb: 'E67700' } },
+            alignment: { horizontal: 'left' },
+        };
+        for (const ri of sectionIndices) {
+            for (let c = 0; c < N; c++) {
+                const addr = XLSX.utils.encode_cell({ r: ri, c });
+                if (!ws[addr]) ws[addr] = { v: '', t: 's' };
+                ws[addr].s = sectionStyle;
+            }
+        }
+
+        // Column headers — blue (reuse styleHeaderRow)
+        for (const ri of colHeaderIndices) styleHeaderRow(ws, ri, N);
+
+        // Total rows — green
         const totalStyle = {
             font:      { bold: true, color: { rgb: 'FFFFFF' } },
             fill:      { fgColor: { rgb: '00B050' } },
             alignment: { horizontal: 'center' },
         };
-        for (const ri of totalRowIndices) {
-            for (let c = 0; c < headers.length; c++) {
+        for (const ri of totalIndices) {
+            for (let c = 0; c < N; c++) {
                 const addr = XLSX.utils.encode_cell({ r: ri, c });
                 if (!ws[addr]) ws[addr] = { v: '', t: 's' };
                 ws[addr].s = totalStyle;
@@ -891,10 +964,9 @@ const AllowanceChecker = (() => {
 
         ws['!cols'] = [
             { wch: 6 }, { wch: 5 }, { wch: 12 }, { wch: 22 }, { wch: 20 },
-            { wch: 14 }, { wch: 11 }, { wch: 11 }, { wch: 18 }, { wch: 18 },
-            { wch: 22 }, { wch: 12 }, { wch: 11 }, { wch: 18 }, { wch: 30 }, { wch: 12 },
+            { wch: 14 }, { wch: 18 }, { wch: 18 },
+            { wch: 22 }, { wch: 11 }, { wch: 18 }, { wch: 30 }, { wch: 12 },
         ];
-        ws['!freeze'] = { xSplit: 0, ySplit: 1 };
 
         return ws;
     }
