@@ -788,6 +788,9 @@ const AllowanceChecker = (() => {
         allowanceSheet['!cols'] = [{ wch: 24 }, { wch: 14 }, { wch: 22 }];
         XLSX.utils.book_append_sheet(wb, allowanceSheet, 'Allowance Amount');
 
+        /* ── Sheet 3: Per Person breakdown ─────────────────── */
+        XLSX.utils.book_append_sheet(wb, buildPerPersonSheet(trackingRows), 'Per Person');
+
         XLSX.writeFile(wb, `Allowance_${label}_${monthAbbr}_${halfStr}.xlsx`, { compression: true });
     }
 
@@ -810,6 +813,90 @@ const AllowanceChecker = (() => {
 
         buildSplitWorkbook(oldRows, oldPeople, oldGrandTotal, monthAbbr, halfStr, 'Old');
         buildSplitWorkbook(newRows, newPeople, newGrandTotal, monthAbbr, halfStr, 'New');
+    }
+
+    /** Build a per-person breakdown sheet: one row per team member per source row, grouped by name with subtotals. */
+    function buildPerPersonSheet(trackingRows) {
+        const ROLE_LABELS = { engineer: 'Engineer', tech1: 'Tech-1', tech2: 'Tech-2', tech3: 'Tech-3', driver: 'Driver' };
+        const PERSON_FIELDS = ['engineer', 'tech1', 'tech2', 'tech3', 'driver'];
+
+        const personGroups = new Map(); // normKey → { displayName, entries[] }
+
+        for (const row of trackingRows) {
+            const allowance = parseFloat(row.allowance) || 0;
+            for (const field of PERSON_FIELDS) {
+                const rawName = (row[field] || '').trim();
+                if (!rawName) continue;
+                const key = normName(rawName);
+                if (!personGroups.has(key)) personGroups.set(key, { displayName: rawName, entries: [] });
+                personGroups.get(key).entries.push({
+                    month: row.month, day: row.day, monthHalf: row.monthHalf,
+                    coordinator: row.coordinator, site: row.site, area: row.area,
+                    startTime: row.startTime, endTime: row.endTime,
+                    project: row.project, subProject: row.subProject,
+                    role: ROLE_LABELS[field], allowance,
+                    vacationAllowance: row.vacationAllowance, workDetails: row.workDetails, jc: row.jc,
+                });
+            }
+        }
+
+        const headers = [
+            'Month', 'Day', 'Month Half', 'Coordinator', 'Site', 'Area',
+            'Start Time', 'End Time', 'Project', 'Sub Project',
+            'Name', 'Role', 'Allowance', 'Vacation Allowance', 'Work Details', 'JC',
+        ];
+
+        const aoa = [headers];
+        const totalRowIndices = [];
+
+        const sortedGroups = [...personGroups.values()]
+            .sort((a, b) => a.displayName.localeCompare(b.displayName));
+
+        for (const { displayName, entries } of sortedGroups) {
+            entries.sort((a, b) => (Number(a.day) - Number(b.day)) || String(a.day).localeCompare(String(b.day)));
+
+            for (const e of entries) {
+                aoa.push([
+                    e.month, e.day, e.monthHalf, e.coordinator, e.site, e.area,
+                    e.startTime, e.endTime, e.project, e.subProject,
+                    displayName, e.role, e.allowance, e.vacationAllowance, e.workDetails, e.jc,
+                ]);
+            }
+
+            const total = entries.reduce((s, e) => s + e.allowance, 0);
+            const totalRow = new Array(headers.length).fill('');
+            totalRow[10] = displayName;
+            totalRow[11] = 'Total';
+            totalRow[12] = total;
+            totalRowIndices.push(aoa.length);
+            aoa.push(totalRow);
+            aoa.push(new Array(headers.length).fill(''));
+        }
+
+        const ws = XLSX.utils.aoa_to_sheet(aoa);
+        styleHeaderRow(ws, 0, headers.length);
+
+        const totalStyle = {
+            font:      { bold: true, color: { rgb: 'FFFFFF' } },
+            fill:      { fgColor: { rgb: '00B050' } },
+            alignment: { horizontal: 'center' },
+        };
+        for (const ri of totalRowIndices) {
+            for (let c = 0; c < headers.length; c++) {
+                const addr = XLSX.utils.encode_cell({ r: ri, c });
+                if (!ws[addr]) ws[addr] = { v: '', t: 's' };
+                ws[addr].s = totalStyle;
+            }
+        }
+
+        ws['!cols'] = [
+            { wch: 6 }, { wch: 5 }, { wch: 12 }, { wch: 22 }, { wch: 20 },
+            { wch: 14 }, { wch: 11 }, { wch: 11 }, { wch: 18 }, { wch: 18 },
+            { wch: 22 }, { wch: 12 }, { wch: 11 }, { wch: 18 }, { wch: 30 }, { wch: 12 },
+        ];
+        ws['!freeze'] = { xSplit: 0, ySplit: 1 };
+
+        return ws;
     }
 
     /** Apply bold + blue header style to a range of cells in a worksheet. */
@@ -934,8 +1021,11 @@ const AllowanceChecker = (() => {
         allowanceSheet['!cols'] = [{ wch: 24 }, { wch: 14 }, { wch: 22 }];
         XLSX.utils.book_append_sheet(wb, allowanceSheet, 'Allowance Amount');
 
+        /* ── Sheet 3: Per Person breakdown ───────────────────── */
+        XLSX.utils.book_append_sheet(wb, buildPerPersonSheet(filteredRows), 'Per Person');
+
         /* ── Download ────────────────────────────────────────── */
-        XLSX.writeFile(wb, `Allowance_Report_${monthAbbr}_${halfStr}.xlsx`);
+        XLSX.writeFile(wb, `Allowance_Report_${monthAbbr}_${halfStr}.xlsx`, { compression: true });
     }
 
     /* ── Master tracking parser ──────────────────────────────── */
