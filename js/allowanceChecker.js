@@ -789,7 +789,9 @@ const AllowanceChecker = (() => {
         XLSX.utils.book_append_sheet(wb, allowanceSheet, 'Allowance Amount');
 
         /* ── Sheet 3: Per Person breakdown ─────────────────── */
-        XLSX.utils.book_append_sheet(wb, buildPerPersonSheet(trackingRows), 'Per Person');
+        for (const { tabName, ws } of buildPerPersonSheets(trackingRows)) {
+            XLSX.utils.book_append_sheet(wb, ws, tabName);
+        }
 
         XLSX.writeFile(wb, `Allowance_${label}_${monthAbbr}_${halfStr}.xlsx`, { compression: true });
     }
@@ -815,12 +817,21 @@ const AllowanceChecker = (() => {
         buildSplitWorkbook(newRows, newPeople, newGrandTotal, monthAbbr, halfStr, 'New');
     }
 
-    /** Build a per-person breakdown sheet: sectioned by role, each person gets their own header + rows + total. */
-    function buildPerPersonSheet(trackingRows) {
+    /**
+     * Build one worksheet per employee (one tab per person), ordered:
+     * engineers → tech1 → tech2 → tech3 → drivers, alphabetically within each.
+     * Each sheet: orange section label + blue column headers + data rows + green total.
+     * Returns [{ tabName, ws }, …]
+     */
+    function buildPerPersonSheets(trackingRows) {
         const teamSalaryMap   = buildSalaryMap(AppData.getSalaries());
         const driverSalaryMap = buildSalaryMap(AppData.getDriverSalaries());
 
-        const ROLE_LABELS = { engineer: 'Engineer', tech1: 'Tech-1', tech2: 'Tech-2', tech3: 'Tech-3', driver: 'Driver' };
+        const SECTION_LABEL = {
+            engineer: 'Engineer',
+            tech1: 'Technicians', tech2: 'Technicians', tech3: 'Technicians',
+            driver: 'Driver',
+        };
 
         // One Map per role: normKey → { displayName, entries[] }
         const roleGroups = new Map([
@@ -852,123 +863,120 @@ const AllowanceChecker = (() => {
                 group.get(key).entries.push({
                     month: row.month, day: row.day, monthHalf: row.monthHalf,
                     coordinator: row.coordinator, site: row.site, area: row.area,
-                    startTime: row.startTime, endTime: row.endTime,
                     project: row.project, subProject: row.subProject,
-                    role: ROLE_LABELS[field], allowance, vacAmt,
-                    workDetails: row.workDetails, jc: row.jc,
+                    allowance, vacAmt, workDetails: row.workDetails, jc: row.jc,
                 });
             }
         }
 
-        const HEADERS  = [
+        const HEADERS = [
             'Month', 'Day', 'Month Half', 'Coordinator', 'Site', 'Area',
             'Project', 'Sub Project',
             'Name', 'Allowance', 'Vacation Allowance', 'Work Details', 'JC',
         ];
-        const N        = HEADERS.length;
-        const COL_NAME  = 8, COL_ALLOW = 9, COL_VAC = 10;
+        const N = HEADERS.length;
+        const COL_NAME = 8, COL_ALLOW = 9, COL_VAC = 10;
 
-        const aoa              = [];
-        const sectionIndices   = [];  // orange section-label rows
-        const colHeaderIndices = [];  // blue column-header rows (one per employee)
-        const totalIndices     = [];  // green total rows
-
-        function hasAny(roleKey) {
-            return [...roleGroups.get(roleKey).values()].some(g => g.entries.length > 0);
-        }
-
-        function addSectionLabel(label) {
-            const row = new Array(N).fill('');
-            row[0] = label;
-            sectionIndices.push(aoa.length);
-            aoa.push(row);
-        }
-
-        function addRoleGroup(roleKey) {
-            const sorted = [...roleGroups.get(roleKey).values()]
-                .filter(g => g.entries.length > 0)
-                .sort((a, b) => a.displayName.localeCompare(b.displayName));
-
-            for (const { displayName, entries } of sorted) {
-                entries.sort((a, b) =>
-                    (Number(a.day) - Number(b.day)) || String(a.day).localeCompare(String(b.day))
-                );
-
-                // Column headers for this employee
-                colHeaderIndices.push(aoa.length);
-                aoa.push([...HEADERS]);
-
-                // Data rows
-                for (const e of entries) {
-                    aoa.push([
-                        e.month, e.day, e.monthHalf, e.coordinator, e.site, e.area,
-                        e.project, e.subProject,
-                        displayName, e.allowance,
-                        e.vacAmt > 0 ? e.vacAmt : '',
-                        e.workDetails, e.jc,
-                    ]);
-                }
-
-                // Total row (allowance + vacation)
-                const totalAllow = entries.reduce((s, e) => s + e.allowance, 0);
-                const totalVac   = entries.reduce((s, e) => s + e.vacAmt,    0);
-                const totalRow   = new Array(N).fill('');
-                totalRow[COL_NAME]  = displayName + ' — Total';
-                totalRow[COL_ALLOW] = totalAllow;
-                if (totalVac > 0) totalRow[COL_VAC] = totalVac;
-                totalIndices.push(aoa.length);
-                aoa.push(totalRow);
-                aoa.push(new Array(N).fill(''));  // spacer
-            }
-        }
-
-        if (hasAny('engineer')) { addSectionLabel('Engineer');     addRoleGroup('engineer'); }
-        if (['tech1','tech2','tech3'].some(k => hasAny(k))) {
-            addSectionLabel('Technicians');
-            addRoleGroup('tech1'); addRoleGroup('tech2'); addRoleGroup('tech3');
-        }
-        if (hasAny('driver'))   { addSectionLabel('Driver');       addRoleGroup('driver');   }
-
-        const ws = XLSX.utils.aoa_to_sheet(aoa);
-
-        // Section labels — orange background
-        const sectionStyle = {
-            font:      { bold: true, sz: 12, color: { rgb: 'FFFFFF' } },
-            fill:      { fgColor: { rgb: 'E67700' } },
-            alignment: { horizontal: 'left' },
-        };
-        for (const ri of sectionIndices) {
-            for (let c = 0; c < N; c++) {
-                const addr = XLSX.utils.encode_cell({ r: ri, c });
-                if (!ws[addr]) ws[addr] = { v: '', t: 's' };
-                ws[addr].s = sectionStyle;
-            }
-        }
-
-        // Column headers — blue (reuse styleHeaderRow)
-        for (const ri of colHeaderIndices) styleHeaderRow(ws, ri, N);
-
-        // Total rows — green
-        const totalStyle = {
-            font:      { bold: true, color: { rgb: 'FFFFFF' } },
-            fill:      { fgColor: { rgb: '00B050' } },
-            alignment: { horizontal: 'center' },
-        };
-        for (const ri of totalIndices) {
-            for (let c = 0; c < N; c++) {
-                const addr = XLSX.utils.encode_cell({ r: ri, c });
-                if (!ws[addr]) ws[addr] = { v: '', t: 's' };
-                ws[addr].s = totalStyle;
-            }
-        }
-
-        ws['!cols'] = [
+        const COLS = [
             { wch: 6 }, { wch: 5 }, { wch: 12 }, { wch: 22 }, { wch: 20 },
             { wch: 14 }, { wch: 18 }, { wch: 18 },
             { wch: 22 }, { wch: 11 }, { wch: 18 }, { wch: 30 }, { wch: 12 },
         ];
 
-        return ws;
+        const sectionStyle = {
+            font:      { bold: true, sz: 12, color: { rgb: 'FFFFFF' } },
+            fill:      { fgColor: { rgb: 'E67700' } },
+            alignment: { horizontal: 'left' },
+        };
+        const totalStyle = {
+            font:      { bold: true, color: { rgb: 'FFFFFF' } },
+            fill:      { fgColor: { rgb: '00B050' } },
+            alignment: { horizontal: 'center' },
+        };
+
+        function applyRowStyle(ws, ri, style) {
+            for (let c = 0; c < N; c++) {
+                const addr = XLSX.utils.encode_cell({ r: ri, c });
+                if (!ws[addr]) ws[addr] = { v: '', t: 's' };
+                ws[addr].s = style;
+            }
+        }
+
+        // Sanitise name for Excel tab: strip forbidden chars, max 31 chars
+        function safeTabName(name) {
+            return name.replace(/[\/\\?*\[\]:]/g, '_').slice(0, 31) || 'Sheet';
+        }
+
+        const sheets     = [];   // [{ tabName, ws }]
+        const usedTabs   = new Map();  // sanitised name → count, for dedup
+
+        function buildSheet(displayName, entries, sectionLabel) {
+            entries.sort((a, b) =>
+                (Number(a.day) - Number(b.day)) || String(a.day).localeCompare(String(b.day))
+            );
+
+            const aoa = [];
+
+            // Row 0: orange section label
+            const secRow = new Array(N).fill('');
+            secRow[0] = sectionLabel;
+            aoa.push(secRow);
+
+            // Row 1: blue column headers
+            aoa.push([...HEADERS]);
+
+            // Data rows
+            for (const e of entries) {
+                aoa.push([
+                    e.month, e.day, e.monthHalf, e.coordinator, e.site, e.area,
+                    e.project, e.subProject,
+                    displayName, e.allowance,
+                    e.vacAmt > 0 ? e.vacAmt : '',
+                    e.workDetails, e.jc,
+                ]);
+            }
+
+            // Green total row
+            const totalAllow = entries.reduce((s, e) => s + e.allowance, 0);
+            const totalVac   = entries.reduce((s, e) => s + e.vacAmt,    0);
+            const totalRow   = new Array(N).fill('');
+            totalRow[COL_NAME]  = displayName + ' — Total';
+            totalRow[COL_ALLOW] = totalAllow;
+            if (totalVac > 0) totalRow[COL_VAC] = totalVac;
+            const totalRowIdx = aoa.length;
+            aoa.push(totalRow);
+
+            const ws = XLSX.utils.aoa_to_sheet(aoa);
+            applyRowStyle(ws, 0, sectionStyle);
+            styleHeaderRow(ws, 1, N);
+            applyRowStyle(ws, totalRowIdx, totalStyle);
+            ws['!cols'] = COLS;
+
+            return ws;
+        }
+
+        function processRole(field) {
+            const sorted = [...roleGroups.get(field).values()]
+                .filter(g => g.entries.length > 0)
+                .sort((a, b) => a.displayName.localeCompare(b.displayName));
+
+            for (const { displayName, entries } of sorted) {
+                let base = safeTabName(displayName);
+                const count = (usedTabs.get(base) || 0) + 1;
+                usedTabs.set(base, count);
+                const tabName = count === 1 ? base : base.slice(0, 29) + `_${count}`;
+
+                sheets.push({ tabName, ws: buildSheet(displayName, [...entries], SECTION_LABEL[field]) });
+            }
+        }
+
+        processRole('engineer');
+        processRole('tech1');
+        processRole('tech2');
+        processRole('tech3');
+        processRole('driver');
+
+        return sheets;
     }
 
     /** Apply bold + blue header style to a range of cells in a worksheet. */
@@ -1094,7 +1102,9 @@ const AllowanceChecker = (() => {
         XLSX.utils.book_append_sheet(wb, allowanceSheet, 'Allowance Amount');
 
         /* ── Sheet 3: Per Person breakdown ───────────────────── */
-        XLSX.utils.book_append_sheet(wb, buildPerPersonSheet(filteredRows), 'Per Person');
+        for (const { tabName, ws } of buildPerPersonSheets(filteredRows)) {
+            XLSX.utils.book_append_sheet(wb, ws, tabName);
+        }
 
         /* ── Download ────────────────────────────────────────── */
         XLSX.writeFile(wb, `Allowance_Report_${monthAbbr}_${halfStr}.xlsx`, { compression: true });

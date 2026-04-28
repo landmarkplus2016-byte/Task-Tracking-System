@@ -144,21 +144,21 @@ against a master tracking file.
   excluded. Sorted by days worked descending, then alphabetically.
 - Data Sources table: rows loaded vs matched per coordinator sheet
 
-**Per Person tab** (present in all Allowance Checker workbooks):
-- Expands each tracking row into one row per non-empty team member
+**Per Person tabs** (present in all Allowance Checker workbooks):
+- Each employee gets their own dedicated worksheet tab named after them
+- Tab order: Engineers (alphabetical) → Tech-1 → Tech-2 → Tech-3 →
+  Drivers (alphabetical within each role)
+- Each tab contains: orange section-label row (Engineer / Technicians /
+  Driver) → blue column-header row → data rows sorted by day → green
+  total row (`"Name — Total"` with summed Allowance and Vacation Allowance)
 - Columns: Month, Day, Month Half, Coordinator, Site, Area, Project,
   Sub Project, Name, Allowance, Vacation Allowance, Work Details, JC
   (Start Time, End Time, and Role are intentionally excluded)
 - Vacation Allowance column shows the person's actual daily salary
   amount (looked up from `list.xlsx` salary map) — blank when no vacation
-- Layout is sectioned by role in order: **Engineer** → **Technicians**
-  (Tech-1, then Tech-2, then Tech-3) → **Driver**. Each section has an
-  orange header row. Empty sections are skipped entirely.
-- Within each section, employees are sorted alphabetically. Each employee
-  gets their own blue column-header row, data rows sorted by day, and a
-  green total row showing `"Name — Total"` with summed Allowance and
-  Vacation Allowance. A blank spacer separates each employee group.
-- Built by `buildPerPersonSheet()` in `allowanceChecker.js`
+- Empty roles produce no tabs. Duplicate tab names (same employee name
+  in multiple roles) get a `_2` suffix to avoid collisions.
+- Built by `buildPerPersonSheets()` in `allowanceChecker.js`
 
 **Key rules:**
 - Empty team member fields = not counted (truly absent, not zero)
@@ -323,20 +323,20 @@ rendered as a separate item in the Missing Job Codes box. Format:
   constructor — not `new Date('2026-01-01')` which is UTC and would
   misclassify Jan 1 as "Old" in UTC+ timezones (e.g. Egypt UTC+2/+3).
 
-### Allowance Checker: Per Person tab — role sections, not name groups
-The Per Person tab groups rows by **role first, then by person** (not
-alphabetically across all roles). This means the same person can appear
-in two sections if they work as both Tech-1 and Tech-2 in different rows
-— each (role, name) combination is its own group. Section order is fixed:
-Engineer → Technicians (Tech-1/2/3) → Driver. The Technicians section
-covers all three tech roles under one orange header with Tech-1 groups
-listed before Tech-2 and Tech-3.
+### Allowance Checker: Per Person — one tab per employee, not one shared tab
+Each employee gets their own worksheet tab rather than a shared "Per Person"
+sheet. Tab order mirrors the role ordering: engineers first, then Tech-1/2/3
+(as separate role passes), then drivers — all sorted alphabetically within
+each role. A person who appears as both Tech-1 and Tech-2 in different rows
+will get two tabs (one per role); their tab name gets a `_2` suffix on the
+second occurrence to avoid Excel collisions.
 
-The Vacation Allowance column in this tab resolves to the actual EGP
-amount (each person's `dailySalary` from `list.xlsx`) rather than
-copying the raw flag text from the source sheet. If the salary lookup
-fails (name not in list), the vacation amount is 0/blank. The total row
-sums both the Allowance and Vacation Allowance columns independently.
+Each tab has the same layout: orange section-label row (Engineer /
+Technicians / Driver), blue column headers, data rows sorted by day, and a
+green total row. Tab names are sanitised (forbidden Excel chars replaced with
+`_`, truncated to 31 chars).
 
-Start Time, End Time, and Role columns are excluded from this tab by
-design — they add noise without value in the per-person view.
+The Vacation Allowance column resolves to the actual EGP amount (each
+person's `dailySalary` from `list.xlsx`) rather than the raw flag text.
+The total row sums Allowance and Vacation Allowance independently.
+Start Time, End Time, and Role columns are excluded by design.
