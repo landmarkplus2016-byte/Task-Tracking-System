@@ -30,6 +30,7 @@ const SiteIdJc = (() => {
 
     /* ── Configuration ────────────────────────────────────────── */
     const OLD_CUTOFF  = '2026-01-01';
+    const JC_DUPE_SKIP_PREFIXES = ['mk', 'mw', 'wl', 'fd', 'ag', 'az', 'td'];
 
     /* ── Column detection rules ───────────────────────────────── */
     // Listed most-specific first so exact match on the longer term wins.
@@ -276,6 +277,30 @@ const SiteIdJc = (() => {
         });
     }
 
+    /* ── Duplicate JC panel renderer ─────────────────────────── */
+    function renderDuplicateJcPanel(dupes) {
+        const panel = $('siteIdDuplicateJcPanel');
+        if (dupes.length === 0) { panel.hidden = true; return; }
+
+        $('siteIdDuplicateJcTitle').textContent =
+            `🔴 ${dupes.length} Job Code${dupes.length > 1 ? 's' : ''} linked to multiple sites`;
+
+        $('siteIdDuplicateJcList').innerHTML = dupes.map(({ jc, sites }) => {
+            const siteTags = [...sites.entries()].map(([siteId, files]) => {
+                const fileList = [...files].map(f =>
+                    `<span style="color:var(--gray-400);font-size:.74rem;">(${escHtml(f)})</span>`
+                ).join(' ');
+                return `<span class="jc-site-item">${escHtml(siteId)} ${fileList}</span>`;
+            }).join('');
+            return `<li>
+                <span class="jc-tag">${escHtml(jc)}</span>
+                <span class="jc-sites">${siteTags}</span>
+            </li>`;
+        }).join('');
+
+        panel.hidden = false;
+    }
+
     /* ── Main processing function ─────────────────────────────── */
     async function processAll() {
         if (_files.length === 0) return;
@@ -286,6 +311,8 @@ const SiteIdJc = (() => {
 
         const allRows    = [];
         const skipped    = [];
+        // Map<jcLower, { jc: string, sites: Map<siteId, Set<fileName>> }>
+        const jcTracker  = new Map();
 
         try {
             for (let i = 0; i < _files.length; i++) {
@@ -336,6 +363,20 @@ const SiteIdJc = (() => {
                             const taskDate   = String(row[cols.taskDate]   || '').trim();
                             const contractor = String(row[cols.contractor] || '').trim();
 
+                            // Track JC → site mappings for duplicate detection
+                            if (siteId && jobCode &&
+                                !JC_DUPE_SKIP_PREFIXES.some(p => jobCode.toLowerCase().startsWith(p))) {
+                                const jcLower = jobCode.toLowerCase();
+                                if (!jcTracker.has(jcLower)) {
+                                    jcTracker.set(jcLower, { jc: jobCode, sites: new Map() });
+                                }
+                                const entry = jcTracker.get(jcLower);
+                                if (!entry.sites.has(siteId)) {
+                                    entry.sites.set(siteId, new Set());
+                                }
+                                entry.sites.get(siteId).add(file.name);
+                            }
+
                             const siteIdJc = (siteId && jobCode)
                                 ? `${siteId}-${jobCode}`
                                 : (siteId || jobCode);
@@ -362,6 +403,11 @@ const SiteIdJc = (() => {
             setProgress(100, 'Done!');
             $('siteIdRowCount').textContent  = allRows.length;
             $('siteIdResultsSection').hidden = false;
+
+            // Detect JCs paired with more than one site
+            const dupes = [...jcTracker.values()].filter(e => e.sites.size > 1);
+            renderDuplicateJcPanel(dupes);
+
             $('siteIdResultsSection').scrollIntoView({ behavior: 'smooth', block: 'start' });
 
             if (skipped.length > 0) {
@@ -411,9 +457,10 @@ const SiteIdJc = (() => {
         _files    = [];
         _workbook = null;
         renderFiles();
-        $('siteIdInput').value            = '';
-        $('siteIdResultsSection').hidden  = true;
-        $('siteIdProgressSection').hidden = true;
+        $('siteIdInput').value              = '';
+        $('siteIdResultsSection').hidden    = true;
+        $('siteIdProgressSection').hidden   = true;
+        $('siteIdDuplicateJcPanel').hidden  = true;
     }
 
     /* ── Public API ───────────────────────────────────────────── */
