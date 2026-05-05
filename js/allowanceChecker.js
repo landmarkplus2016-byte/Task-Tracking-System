@@ -796,6 +796,128 @@ const AllowanceChecker = (() => {
         XLSX.writeFile(wb, `Allowance_${label}_${monthAbbr}_${halfStr}.xlsx`, { compression: true });
     }
 
+    /**
+     * Build a "Cost per Site" worksheet.
+     * Logic:
+     *   1. For every filtered row, compute the row's total cost
+     *      (allowancePerPerson × memberCount + vacation totals).
+     *   2. Group rows by day → sum dayCost and siteCount per day.
+     *   3. costPerSite = dayCost / totalSitesForDay
+     *   4. Emit one output row per site (multi-site rows are expanded).
+     *      Team-member fields are repeated on every expanded row.
+     */
+    function buildSiteCostSheet(filteredRows) {
+        const teamSalaryMap   = buildSalaryMap(AppData.getSalaries());
+        const driverSalaryMap = buildSalaryMap(AppData.getDriverSalaries());
+
+        // Step 1: enrich each row with its cost and its expanded site list
+        const enriched = filteredRows.map(row => {
+            const allowancePerPerson = parseFloat(row.allowance) || 0;
+            const hasVacation        = (row.vacationAllowance || '').trim() !== '';
+            let   memberCount        = 0;
+            let   rowVacationTotal   = 0;
+
+            for (const field of ['engineer', 'tech1', 'tech2', 'tech3']) {
+                const name = (row[field] || '').trim();
+                if (!name) continue;
+                memberCount++;
+                if (hasVacation) {
+                    const sal = lookupSalary(teamSalaryMap, name);
+                    if (sal && sal.dailySalary > 0) rowVacationTotal += sal.dailySalary;
+                }
+            }
+            const drvName = (row.driver || '').trim();
+            if (drvName) {
+                memberCount++;
+                if (hasVacation) {
+                    const sal = lookupSalary(driverSalaryMap, drvName) || lookupSalary(teamSalaryMap, drvName);
+                    if (sal && sal.dailySalary > 0) rowVacationTotal += sal.dailySalary;
+                }
+            }
+
+            const rowCost = allowancePerPerson * memberCount + rowVacationTotal;
+
+            const siteRaw = (row.site || '').trim();
+            const jcRaw   = (row.jc   || '').trim();
+            const sites   = siteRaw ? siteRaw.split('/').map(s => s.trim()).filter(Boolean) : [''];
+            const jcs     = jcRaw   ? jcRaw.split('/').map(s => s.trim()).filter(Boolean)   : [];
+
+            return { row, rowCost, sites, jcs };
+        });
+
+        // Step 2: aggregate per-day totals
+        const dayTotals = new Map(); // day → { totalCost, totalSites }
+        for (const { row, rowCost, sites } of enriched) {
+            const day = (row.day || '').trim();
+            if (!dayTotals.has(day)) dayTotals.set(day, { totalCost: 0, totalSites: 0 });
+            const d = dayTotals.get(day);
+            d.totalCost  += rowCost;
+            d.totalSites += sites.length;
+        }
+
+        // Step 3: build output rows — one per site
+        const outputRows = [];
+        for (const { row, sites, jcs } of enriched) {
+            const day  = (row.day || '').trim();
+            const { totalCost, totalSites } = dayTotals.get(day) || { totalCost: 0, totalSites: 1 };
+            const costPerSite = totalSites > 0 ? totalCost / totalSites : 0;
+            const dateStr = day && row.month ? `${day}-${row.month}` : (day || row.month || '');
+
+            for (let i = 0; i < sites.length; i++) {
+                outputRows.push([
+                    dateStr,
+                    sites[i],
+                    jcs[i] || '',
+                    costPerSite,
+                    row.coordinator || '',
+                    row.engineer    || '',
+                    row.tech1       || '',
+                    row.tech2       || '',
+                    row.tech3       || '',
+                    row.driver      || '',
+                    Number(day) || 0,   // sort key — stripped below
+                ]);
+            }
+        }
+
+        // Sort by day (asc), then Site ID
+        outputRows.sort((a, b) => (a[10] - b[10]) || String(a[1]).localeCompare(String(b[1])));
+        // Remove sort key column
+        outputRows.forEach(r => r.splice(10, 1));
+
+        const headers = [
+            'Date', 'Site ID', 'Job Code', 'Cost/Site', 'Coordinator',
+            'Engineer', 'Tech-1', 'Tech-2', 'Tech-3', 'Driver',
+        ];
+        const ws = XLSX.utils.aoa_to_sheet([headers, ...outputRows]);
+        styleHeaderRow(ws, 0, headers.length);
+        ws['!cols'] = [
+            { wch: 12 }, { wch: 16 }, { wch: 14 }, { wch: 12 }, { wch: 22 },
+            { wch: 20 }, { wch: 20 }, { wch: 20 }, { wch: 20 }, { wch: 20 },
+        ];
+        ws['!freeze'] = { xSplit: 0, ySplit: 1 };
+
+        return ws;
+    }
+
+    /** Download a standalone workbook with the Site Cost sheet. */
+    function generateSiteCostFile() {
+        if (!state.results) {
+            alert('Please run analysis first.');
+            return;
+        }
+
+        const { monthName, half } = state.results;
+        const monthAbbr = monthName.slice(0, 3);
+        const halfStr   = half === 'first' ? 'First' : 'Second';
+
+        const wb      = XLSX.utils.book_new();
+        const tabName = `${monthAbbr} - ${halfStr} - Cost`.slice(0, 31);
+        XLSX.utils.book_append_sheet(wb, buildSiteCostSheet(state.filteredRows), tabName);
+
+        XLSX.writeFile(wb, `SiteCost_${monthAbbr}_${halfStr}.xlsx`, { compression: true });
+    }
+
     /** Generate the two split Excel files (Old and New). */
     function generateNewOldFiles() {
         if (!state.results) {
@@ -1602,6 +1724,7 @@ const AllowanceChecker = (() => {
 
         $('allowanceDownloadBtn').addEventListener('click', generateExcel);
         $('allowanceNewOldBtn').addEventListener('click', generateNewOldFiles);
+        $('allowanceSiteCostBtn').addEventListener('click', generateSiteCostFile);
     }
 
     return { init, reset };
