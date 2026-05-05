@@ -121,20 +121,22 @@ against a master tracking file.
      file, and flags missing or mismatched combos
 7. If errors exist, they are shown in the Errors & Warnings panel
    before output generation
-8. Two download actions are available:
-   - **Download Output** — the original complete report named
+8. Three download actions are available:
+   - **Download Output** (green) — the original complete report named
      `Allowance_Report_[Month]_[Half].xlsx` with tabs:
      - **[Month] - [Half]**: filtered tracking rows
      - **Allowance Amount**: two tables — Team (Name, Total Amount,
        Account Number) and Driver (Name, Amount)
      - **Per Person**: one row per team member per source row,
        sectioned by role (see Per Person tab below)
-   - **New/Old Files** — generates two separate workbooks with the
+   - **New/Old Files** (red) — generates two separate workbooks with the
      same structure, splitting rows by Old/New classification:
      - `Allowance_Old_[Month]_[Half].xlsx`
      - `Allowance_New_[Month]_[Half].xlsx`
      - Each workbook also contains a **Per Person** tab scoped to
        its Old or New rows only
+   - **Cost per Site** (blue) — generates `SiteCost_[Month]_[Half].xlsx`
+     with one row per site per day (see Cost per Site section below)
 
 **Results UI:**
 - Stat cards row: Sheets fetched · Total rows · Filtered count ·
@@ -166,6 +168,24 @@ against a master tracking file.
 - Site-JC pairing is positional (index-based)
 - All errors must appear before output is generated
 - Days worked = unique calendar days (Set-based), not row count
+
+**Cost per Site output** (`SiteCost_[Month]_[Half].xlsx`):
+- One sheet, one row per site per day
+- Columns: Date, Site ID, Job Code, Cost/Site, Coordinator, Engineer,
+  Tech-1, Tech-2, Tech-3, Driver
+- **Date** is formatted as `{day}-{monthAbbr}` (e.g. `15-Jan`) from row data
+- **Cost/Site calculation**:
+  1. For every row compute its total cost:
+     `rowCost = allowancePerPerson × memberCount + Σ dailySalary (vacation rows only)`
+  2. Group by day → sum all row costs and all site counts for that day
+  3. `costPerSite = totalDayCost / totalSitesForDay`
+  4. Multi-site rows (e.g. `K3960 / K5402`) are expanded — one output row
+     per site, same cost/site value, team-member fields repeated on each row
+- Rows with no site data count as 1 site and produce one output row with
+  a blank Site ID
+- Output rows are sorted by day (ascending), then Site ID
+- Built by `buildSiteCostSheet()` and `generateSiteCostFile()` in
+  `allowanceChecker.js`; button ID is `allowanceSiteCostBtn`
 
 **New/Old split rules (applied per site-JC pair, not per row):**
 - JC contains "CCTV" (case-insensitive) → **always Old**, highest priority
@@ -215,7 +235,7 @@ These are hardcoded — there is no settings UI.
 - `sw.js` caches all static assets for offline use
 - **Always bump the cache version string in `sw.js` before
   pushing any update**
-- Current cache version: `task-tracker-v2.179`
+- Current cache version: `task-tracker-v2.182`
 - Version format: always two digits after the dot (e.g. `v2.10`,
   `v2.11`) — never single digit minor (not `v2.9`)
 
@@ -322,6 +342,15 @@ rendered as a separate item in the Missing Job Codes box. Format:
 - The Old/New cutoff uses `new Date(2026, 0, 1)` — local-time
   constructor — not `new Date('2026-01-01')` which is UTC and would
   misclassify Jan 1 as "Old" in UTC+ timezones (e.g. Egypt UTC+2/+3).
+
+### Allowance Checker: download button color convention
+Three buttons sit in the `download-bar` of the results section:
+- **Download Output** — `btn-success` (filled green) — the main full report
+- **New/Old Files** — `btn-outline-red` (filled red, white text) — split output
+- **Cost per Site** — `btn-primary` (filled blue, white text) — site cost report
+
+`btn-outline-red` is a custom class in `css/styles.css` (background `#e02424`,
+white text). It is not a Bootstrap utility — don't rename it to `btn-danger`.
 
 ### Allowance Checker: Per Person — one tab per employee, not one shared tab
 Each employee gets their own worksheet tab rather than a shared "Per Person"
