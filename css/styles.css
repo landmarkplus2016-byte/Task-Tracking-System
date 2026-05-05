@@ -397,6 +397,13 @@ main {
 }
 .btn-outline:hover { background: var(--primary-light); }
 
+.btn-outline-red {
+    background: #e02424;
+    color: var(--white);
+    border: 1.5px solid #e02424;
+}
+.btn-outline-red:hover { background: #c81e1e; box-shadow: var(--shadow-md); }
+
 .btn-success { background: var(--success); color: var(--white); }
 .btn-success:hover { background: #046c4e; box-shadow: var(--shadow-md); }
 
