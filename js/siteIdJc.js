@@ -58,7 +58,11 @@ const SiteIdJc = (() => {
     /* ── Fuzzy column finder ──────────────────────────────────── */
     function detectColumns(headers) {
         const result = {};
-        const lower  = headers.map(h => (h || '').toString().toLowerCase().trim());
+        // Collapse all whitespace variants (including non-breaking spaces
+        // that Excel embeds silently) into a regular space before comparing.
+        const lower = headers.map(h =>
+            (h || '').toString().replace(/\s+/g, ' ').toLowerCase().trim()
+        );
 
         for (const { key, terms } of COL_RULES) {
             // Pass 1: exact match (header equals one of the terms exactly)
@@ -66,6 +70,21 @@ const SiteIdJc = (() => {
             // Pass 2: contains match
             if (idx === -1) {
                 idx = lower.findIndex(h => terms.some(t => h.includes(t)));
+            }
+            // Pass 3: adjacent-pair match for two-level merged headers.
+            // Files with group headers (e.g. "Installation" merged over
+            // "Date" and "Team" sub-columns) produce separate entries in
+            // sheet.headers like ['Installation', 'Date', 'Installation', 'Team'].
+            // Concatenating adjacent pairs recovers 'installation date' /
+            // 'installation team' so the normal term list can match them.
+            if (idx === -1) {
+                for (let j = 0; j < lower.length - 1; j++) {
+                    const pair = lower[j] + ' ' + lower[j + 1];
+                    if (terms.some(t => pair === t)) {
+                        idx = j + 1;  // use the sub-column (Date/Team), not the group (Installation)
+                        break;
+                    }
+                }
             }
             result[key] = idx;
         }
