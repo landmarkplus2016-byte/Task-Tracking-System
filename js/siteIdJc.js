@@ -30,7 +30,7 @@ const SiteIdJc = (() => {
 
     /* ── Configuration ────────────────────────────────────────── */
     const OLD_CUTOFF  = '2026-01-01';
-    const JC_DUPE_SKIP_PREFIXES = ['mk', 'mw', 'wl', 'fd', 'ag', 'az', 'td'];
+    const JC_DUPE_SKIP_PREFIXES = ['mk', 'mw', 'wl', 'fd', 'ag', 'az', 'td', 'old', 'na'];
 
     /* ── Column detection rules ───────────────────────────────── */
     // Listed most-specific first so exact match on the longer term wins.
@@ -382,9 +382,12 @@ const SiteIdJc = (() => {
                             const taskDate   = String(row[cols.taskDate]   || '').trim();
                             const contractor = String(row[cols.contractor] || '').trim();
 
-                            // Track JC → site mappings for duplicate detection
+                            // Track JC → site mappings for duplicate detection.
+                            // Skip rows from any file whose name contains "old" (case-insensitive)
+                            // — these are historical files and their JCs should never trigger conflicts.
                             if (siteId && jobCode &&
-                                !JC_DUPE_SKIP_PREFIXES.some(p => jobCode.toLowerCase().startsWith(p))) {
+                                !JC_DUPE_SKIP_PREFIXES.some(p => jobCode.toLowerCase().startsWith(p)) &&
+                                !/old/i.test(file.name)) {
                                 const jcLower = jobCode.toLowerCase();
                                 if (!jcTracker.has(jcLower)) {
                                     jcTracker.set(jcLower, { jc: jobCode, sites: new Map() });
@@ -423,8 +426,15 @@ const SiteIdJc = (() => {
             $('siteIdRowCount').textContent  = allRows.length;
             $('siteIdResultsSection').hidden = false;
 
-            // Detect JCs paired with more than one site
-            const dupes = [...jcTracker.values()].filter(e => e.sites.size > 1);
+            // Detect JCs paired with more than one site, suppressing conflicts
+            // where every source file is an old-tracking file.
+            const dupes = [...jcTracker.values()].filter(e => {
+                if (e.sites.size <= 1) return false;
+                const allOld = [...e.sites.values()].every(fileSet =>
+                    [...fileSet].every(fname => /old/i.test(fname))
+                );
+                return !allOld;
+            });
             renderDuplicateJcPanel(dupes);
 
             $('siteIdResultsSection').scrollIntoView({ behavior: 'smooth', block: 'start' });

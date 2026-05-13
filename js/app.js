@@ -93,6 +93,7 @@
     const warningsPanel        = $('warningsPanel');
     const warningsList         = $('warningsList');
     const downloadBtn          = $('downloadBtn');
+    const copyNewDataBtn       = $('copyNewDataBtn');
 
     /* ── Helpers ──────────────────────────────────────────────── */
     function escHtml(str) {
@@ -377,9 +378,15 @@
 
             /* ── Step 6: Job Code duplicate check ────────────────── */
             setProgress(95, 'Checking Job Code conflicts…');
-            const jcConflicts = checkJobCodeDuplicates(coordinatorCombined);
+            const jcConflictsRaw = checkJobCodeDuplicates(coordinatorCombined);
+            const JC_SKIP_PREFIX = /^(FD|AG|AZ|MK|MW|TD|WL|old|NA)/i;
+            const jcConflicts = jcConflictsRaw.filter(({ jc, sites }) => {
+                if (JC_SKIP_PREFIX.test(jc)) return false;
+                if (sites.every(({ source }) => /old/i.test(source))) return false;
+                return true;
+            });
             if (jcConflicts.length > 0) {
-                console.warn(`JC conflicts found: ${jcConflicts.length}`);
+                console.warn(`JC conflicts found: ${jcConflicts.length} (${jcConflictsRaw.length - jcConflicts.length} suppressed)`);
             }
 
             setProgress(100, 'Done!');
@@ -499,6 +506,8 @@
             warningsPanel.hidden = true;
         }
 
+        copyNewDataBtn.style.display = results.newEntries.length > 0 ? '' : 'none';
+
         resultsSection.hidden = false;
         resultsSection.scrollIntoView({ behavior: 'smooth', block: 'start' });
     }
@@ -520,8 +529,38 @@
         progressSection.hidden           = true;
         warningsPanel.hidden             = true;
         $('jcConflictsPanel').hidden     = true;
+        copyNewDataBtn.style.display     = 'none';
     }
 
+
+    /* ── Copy New Data ────────────────────────────────────────── */
+    copyNewDataBtn.addEventListener('click', () => {
+        if (!state.results || !state.coordinatorCombined) return;
+
+        const { newEntries } = state.results;
+        if (newEntries.length === 0) return;
+
+        const cd   = state.coordinatorCombined;
+        const cols = cd.normHeaders
+            .map((normH, i) => ({ normH, original: cd.headers[i] }))
+            .filter(({ normH }) => normH !== '__source__')
+            .slice(0, 27);                          // columns A → AA (max 27)
+
+        const rows = newEntries.map(entry =>
+            cols.map(({ normH }) => {
+                const v = entry.row[normH];
+                return (v === null || v === undefined) ? '' : String(v);
+            }).join('\t')
+        );
+
+        navigator.clipboard.writeText(rows.join('\n')).then(() => {
+            const orig = copyNewDataBtn.innerHTML;
+            copyNewDataBtn.textContent = '✓ Copied!';
+            setTimeout(() => { copyNewDataBtn.innerHTML = orig; }, 2000);
+        }).catch(() => {
+            alert('Clipboard write failed — please allow clipboard access and try again.');
+        });
+    });
 
     /* ── Global "New Analysis" sidebar button ─────────────────── */
     $('globalResetBtn').addEventListener('click', () => {
