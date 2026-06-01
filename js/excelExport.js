@@ -15,6 +15,41 @@ const ExcelExport = (() => {
 
     /* ── Helpers ──────────────────────────────────────────────── */
 
+    const _MONTHS = ['Jan','Feb','Mar','Apr','May','Jun','Jul','Aug','Sep','Oct','Nov','Dec'];
+
+    /**
+     * Convert a date-like value to DD-MMM-YYYY (e.g. 11-May-2026).
+     * Handles:
+     *   - JS Date objects
+     *   - "yyyy-mm-dd" strings produced by SheetJS dateNF
+     *   - "dd/mm/yyyy", "mm/dd/yyyy", "dd-mm-yyyy" slash/dash patterns
+     * Non-date values are returned unchanged.
+     */
+    function formatDateValue(val) {
+        if (val === null || val === undefined || val === '') return val;
+        if (val instanceof Date && !isNaN(val)) {
+            return `${String(val.getDate()).padStart(2,'0')}-${_MONTHS[val.getMonth()]}-${val.getFullYear()}`;
+        }
+        const s = val.toString().trim();
+        // yyyy-mm-dd  (SheetJS default output)
+        const isoM = s.match(/^(\d{4})-(\d{2})-(\d{2})$/);
+        if (isoM) {
+            const [, y, m, d] = isoM.map(Number);
+            if (m >= 1 && m <= 12 && d >= 1 && d <= 31)
+                return `${String(d).padStart(2,'0')}-${_MONTHS[m-1]}-${y}`;
+        }
+        // dd/mm/yyyy or mm/dd/yyyy or dd-mm-yyyy (non-ISO two-digit-year-last patterns)
+        const slashM = s.match(/^(\d{1,2})[\/\-](\d{1,2})[\/\-](\d{4})$/);
+        if (slashM) {
+            const [, a, b, y] = slashM.map(Number);
+            // if first part > 12 it must be the day
+            const [dd, mm] = a > 12 ? [a, b] : [b, a];
+            if (mm >= 1 && mm <= 12 && dd >= 1 && dd <= 31)
+                return `${String(dd).padStart(2,'0')}-${_MONTHS[mm-1]}-${y}`;
+        }
+        return val;
+    }
+
     /**
      * Build a worksheet from a 2-D array (header row + data rows).
      * @param  {string[]} headers
@@ -136,7 +171,7 @@ const ExcelExport = (() => {
         }
 
         const dataRows = newEntries.map(entry => {
-            const cells = cols.map(({ normH }) => entry.row[normH] || '');
+            const cells = cols.map(({ normH }) => formatDateValue(entry.row[normH] ?? ''));
             cells.push(entry.source || '');
             return cells;
         });
@@ -156,7 +191,7 @@ const ExcelExport = (() => {
         }
 
         const dataRows = changedEntries.map(entry => {
-            const cells = cols.map(({ normH }) => entry.row[normH] || '');
+            const cells = cols.map(({ normH }) => formatDateValue(entry.row[normH] ?? ''));
             cells.push(entry.changedColumns || '');
             cells.push(entry.source || '');
             return cells;
@@ -171,7 +206,11 @@ const ExcelExport = (() => {
         }
 
         const headers  = ['ID#', 'Column Name', 'Old Value (Master)', 'New Value (Coordinator)'];
-        const dataRows = changeDetails.map(d => [d.id, d.column, d.oldValue, d.newValue]);
+        const dataRows = changeDetails.map(d => [
+            d.id, d.column,
+            formatDateValue(d.oldValue),
+            formatDateValue(d.newValue),
+        ]);
         return autoWidth(buildSheet(headers, dataRows), headers, dataRows);
     }
 
@@ -180,7 +219,7 @@ const ExcelExport = (() => {
         const headers = [...cols.map(c => c.original), 'Source File'];
 
         const dataRows = Array.from(coordinatorData.rows.values()).map(row => {
-            const cells = cols.map(({ normH }) => row[normH] || '');
+            const cells = cols.map(({ normH }) => formatDateValue(row[normH] ?? ''));
             cells.push(row['__source__'] || '');
             return cells;
         });
