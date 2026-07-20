@@ -22,7 +22,7 @@
     <aside class="sidebar">
 
         <div class="sidebar-brand">
-            <img src="LMP Big Logo.jpg" alt="Landmark Plus" class="sidebar-logo">
+            <img src="LMP Big Logo.jpg" alt="Landmark Plus" class="sidebar-logo" id="brandLogo">
             <div class="sidebar-brand-text">
                 <span class="sidebar-title">Tracking & Financial Controller</span>
                 <span class="sidebar-subtitle">Landmark Plus — Telecom Dept.</span>
@@ -57,6 +57,14 @@
                     aria-selected="false"
                     aria-controls="panelAllowanceChecker">
                 <span class="nav-icon">💰</span> Allowance Checker
+            </button>
+            <button class="tab-btn tab-btn--settings"
+                    id="tabBtnSettings"
+                    role="tab"
+                    aria-selected="false"
+                    aria-controls="panelSettings"
+                    hidden>
+                <span class="nav-icon">⚙️</span> Settings
             </button>
         </nav>
 
@@ -474,6 +482,101 @@
 
         </div><!-- /panelAllowanceChecker -->
 
+        <!-- ══════════════════════════════════════════════════════ -->
+        <!-- Tab Panel: Settings (admin only)                      -->
+        <!-- ══════════════════════════════════════════════════════ -->
+        <div class="tab-panel" id="panelSettings" role="tabpanel" hidden>
+
+            <section class="results-section">
+                <h2>⚙️ Settings — App List</h2>
+                <p class="settings-intro">
+                    Edit the Google Sheet URLs and salaries here instead of updating
+                    <code>list.xlsx</code>. Changes are saved to the shared Google Sheet and
+                    apply to all users on their next load. Enter the admin password to save.
+                </p>
+
+                <!-- ── Google Sheets URLs ─────────────────────────── -->
+                <div class="settings-block">
+                    <div class="settings-block-head">
+                        <h3>📄 Google Sheets URLs</h3>
+                        <button class="btn btn-outline" id="settingsAddUrl" type="button">＋ Add Row</button>
+                    </div>
+                    <div class="allowance-table-wrap">
+                        <table class="allowance-table settings-table" id="settingsUrlsTable">
+                            <thead>
+                                <tr>
+                                    <th>Sheet Name</th>
+                                    <th>URL</th>
+                                    <th class="settings-col-del"></th>
+                                </tr>
+                            </thead>
+                            <tbody></tbody>
+                        </table>
+                    </div>
+                </div>
+
+                <!-- ── Team Salaries ──────────────────────────────── -->
+                <div class="settings-block">
+                    <div class="settings-block-head">
+                        <h3>👷 Team Salaries <span class="settings-hint">(monthly salary — daily rate = ÷ 26)</span></h3>
+                        <button class="btn btn-outline" id="settingsAddTeam" type="button">＋ Add Row</button>
+                    </div>
+                    <div class="allowance-table-wrap">
+                        <table class="allowance-table settings-table" id="settingsTeamTable">
+                            <thead>
+                                <tr>
+                                    <th>Name</th>
+                                    <th class="settings-col-num">Salary (monthly)</th>
+                                    <th>Account Number</th>
+                                    <th class="settings-col-del"></th>
+                                </tr>
+                            </thead>
+                            <tbody></tbody>
+                        </table>
+                    </div>
+                </div>
+
+                <!-- ── Driver Salaries ────────────────────────────── -->
+                <div class="settings-block">
+                    <div class="settings-block-head">
+                        <h3>🚚 Driver Salaries <span class="settings-hint">(monthly salary — daily rate = ÷ 26)</span></h3>
+                        <button class="btn btn-outline" id="settingsAddDriver" type="button">＋ Add Row</button>
+                    </div>
+                    <div class="allowance-table-wrap">
+                        <table class="allowance-table settings-table" id="settingsDriverTable">
+                            <thead>
+                                <tr>
+                                    <th>Name</th>
+                                    <th class="settings-col-num">Salary (monthly)</th>
+                                    <th>Account Number</th>
+                                    <th class="settings-col-del"></th>
+                                </tr>
+                            </thead>
+                            <tbody></tbody>
+                        </table>
+                    </div>
+                </div>
+
+                <!-- ── Save bar ───────────────────────────────────── -->
+                <div class="settings-savebar">
+                    <div class="settings-pw-group">
+                        <label class="allowance-label" for="settingsPassword">Admin Password</label>
+                        <input type="password" class="settings-input settings-pw" id="settingsPassword"
+                               autocomplete="off" placeholder="Required to save">
+                    </div>
+                    <button class="btn btn-success btn-large" id="settingsSaveBtn" type="button">
+                        <span>💾</span> Save to Google Sheet
+                    </button>
+                    <button class="btn btn-outline btn-large" id="settingsReloadBtn" type="button">
+                        <span>↻</span> Discard &amp; Reload
+                    </button>
+                    <span class="settings-status" id="settingsStatus"></span>
+                </div>
+
+            </section>
+
+        </div><!-- /panelSettings -->
+
         </main>
 
         <footer>
@@ -489,6 +592,7 @@
     <script src="js/siteIdJc.js"></script>
     <script src="js/pocTracking.js"></script>
     <script src="js/allowanceChecker.js"></script>
+    <script src="js/adminSettings.js"></script>
     <script src="js/app.js"></script>
     <script>
         if ('serviceWorker' in navigator) {

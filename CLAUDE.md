@@ -19,8 +19,9 @@ Every JS file exposes a single `const` IIFE that returns a public API
 object. Load order in `index.html` matters — each module depends only
 on those declared before it:
 ```
-fileHandler.js → comparison.js → excelExport.js → siteIdJc.js
-→ allowanceChecker.js → app.js
+fileHandler.js → appData.js → comparison.js → excelExport.js
+→ siteIdJc.js → pocTracking.js → allowanceChecker.js
+→ adminSettings.js → app.js
 ```
 
 ### Tab structure
@@ -34,9 +35,14 @@ separate state, separate logic:
 | POC Tracking Update | `#panelPocTracking` | `pocTracking.js` |
 | Site ID-JC File | `#panelSiteId` | `siteIdJc.js` |
 | Allowance Checker | `#panelAllowanceChecker` | `allowanceChecker.js` |
+| Settings (admin) | `#panelSettings` | `adminSettings.js` |
 
 Tab switching is handled by `initTabs()` in `app.js` using
 `aria-controls` as the link between button and panel.
+
+The **Settings** tab button is hidden by default. It is revealed by
+clicking the sidebar logo (`#brandLogo`) **7 times within 2 s** — the
+gesture is wired in `app.js` and calls `AdminSettings.reveal()`.
 
 ---
 
@@ -92,18 +98,20 @@ by combining data from multiple Google Sheets and validating it
 against a master tracking file.
 
 **Data Sources:**
-- `list.xlsx` (in project root) — loaded on startup, contains:
-  - `"Google Sheets URLs"` tab: Sheet Name + URL for each coordinator's
-    Google Sheet
-  - `"Salaries"` tab: Name, Account Number, Salary, Salary/Day for
-    each team member
+- **AppList Google Sheet** (via `appData.js` → Apps Script web app) —
+  loaded on startup from a remote JSON endpoint (see "App Data / Settings"
+  below). Replaces the old `list.xlsx`. Provides:
+  - Google Sheet URLs: Sheet Name + URL for each coordinator's Google Sheet
+  - Team & Driver salaries: Name, **full monthly Salary**, Account Number.
+    `appData.js` derives the daily rate as `round(monthly / 26)` and exposes
+    it as `dailySalary` — every downstream consumer is unchanged.
 - Master Tracking Excel file (the Site ID-JC file) — uploaded fresh
   at the start of each analysis run. Must contain a sheet whose name
   includes "Tracking" with columns `SiteID-JC` and `Old/New`.
 
 **Flow:**
-1. On startup, reads `list.xlsx` to load Google Sheet URLs and
-   salary data into app state
+1. On startup, `appData.js` loads Google Sheet URLs and salary data
+   from the AppList Apps Script endpoint into app state
 2. User selects Month and Month Half (First / Second) from dropdowns
 3. User uploads the Master Tracking Excel file (Site ID-JC file)
 4. App fetches and combines all Google Sheets from the URLs list
@@ -157,7 +165,7 @@ against a master tracking file.
   Sub Project, Name, Allowance, Vacation Allowance, Work Details, JC
   (Start Time, End Time, and Role are intentionally excluded)
 - Vacation Allowance column shows the person's actual daily salary
-  amount (looked up from `list.xlsx` salary map) — blank when no vacation
+  amount (looked up from the `AppData` salary map) — blank when no vacation
 - Empty roles produce no tabs. Duplicate tab names (same employee name
   in multiple roles) get a `_2` suffix to avoid collisions.
 - Built by `buildPerPersonSheets()` in `allowanceChecker.js`
@@ -215,18 +223,43 @@ These are hardcoded — there is no settings UI.
 
 - **`js/app.js`** — RF-TX tab wiring, tab switching,
   `findSheetWithId()`, `checkJobCodeDuplicates()`, Old Tasks filter,
-  reset logic
+  reset logic, 7-click logo gesture for the Settings tab
 - **`js/pocTracking.js`** — POC Tracking tab, same structure as
   app.js but keyed on Job Code and POC3 Tracking sheet
 - **`js/siteIdJc.js`** — Site ID-JC tab, fully self-contained
 - **`js/allowanceChecker.js`** — Allowance Checker tab, reads
-  list.xlsx on startup, fetches Google Sheets, runs all analysis
+  data from `AppData`, fetches Google Sheets, runs all analysis
+- **`js/appData.js`** — loads the AppList (Google Sheet URLs +
+  salaries) from the Apps Script endpoint on startup, derives the
+  daily rate (`monthly / 26`), exposes getters + `getRawData()` /
+  `setData()` / `reload()` for the Settings tab
+- **`js/adminSettings.js`** — admin Settings tab: editable URL/Team/
+  Driver tables, saves back to the Google Sheet via `doPost`
 - **`js/comparison.js`** — pure data logic, no DOM
 - **`js/fileHandler.js`** — file I/O and drag-drop
 - **`js/excelExport.js`** — output workbook builder
-- **`list.xlsx`** — reference data file (Google Sheet URLs +
-  salary data), stored in project root, updated manually and
-  pushed to GitHub when changes are needed
+- **`apps-script/Code.gs`** — Google Apps Script web app backing the
+  AppList: `doGet` returns JSON, `doPost` (password-guarded) writes
+  the three Sheet tabs. Deployed manually; its `/exec` URL is the
+  `APPLIST_ENDPOINT` constant in `appData.js`
+
+### App Data / Settings (AppList)
+The reference list that used to live in `list.xlsx` now lives in a
+Google Sheet with three tabs — `Google Sheets URLs`, `Team Salaries`,
+`Driver Salaries` (Salary column = **full monthly** amount). An Apps
+Script web app (`apps-script/Code.gs`) serves it as JSON and accepts
+password-guarded writes. The password is validated **server-side only**
+— it is never stored in the client. The 7-click logo gesture only
+unhides the Settings UI; it does not grant write access. Saving from
+the Settings tab POSTs with `Content-Type: text/plain` to avoid a CORS
+preflight (Apps Script can't answer OPTIONS). `list.xlsx` is retired
+(no fallback).
+
+**Redeploy gotcha:** editing `apps-script/Code.gs` has no effect until
+the Apps Script web app is redeployed. To keep the same `/exec` URL,
+edit the **existing** deployment (Deploy → Manage deployments → pencil →
+New version). A brand-new deployment mints a **different** URL, which
+must then be pasted into `APPLIST_ENDPOINT` in `appData.js`.
 
 ## PWA
 
@@ -235,7 +268,7 @@ These are hardcoded — there is no settings UI.
 - `sw.js` caches all static assets for offline use
 - **Always bump the cache version string in `sw.js` before
   pushing any update**
-- Current cache version: `task-tracker-v2.182`
+- Current cache version: `task-tracker-v2.190`
 - Version format: always two digits after the dot (e.g. `v2.10`,
   `v2.11`) — never single digit minor (not `v2.9`)
 
@@ -366,6 +399,6 @@ green total row. Tab names are sanitised (forbidden Excel chars replaced with
 `_`, truncated to 31 chars).
 
 The Vacation Allowance column resolves to the actual EGP amount (each
-person's `dailySalary` from `list.xlsx`) rather than the raw flag text.
+person's `dailySalary` from `AppData`) rather than the raw flag text.
 The total row sums Allowance and Vacation Allowance independently.
 Start Time, End Time, and Role columns are excluded by design.

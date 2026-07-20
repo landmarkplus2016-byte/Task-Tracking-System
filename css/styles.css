@@ -816,6 +816,98 @@ main {
     font-weight: 400;
 }
 
+/* ── Settings (admin) tab ──────────────────────────────────── */
+.tab-btn--settings { border-top: 1px solid rgba(255, 255, 255, .08); }
+
+.settings-intro {
+    color: var(--gray-500);
+    font-size: .875rem;
+    line-height: 1.5;
+    margin-bottom: 22px;
+    max-width: 720px;
+}
+.settings-intro code {
+    background: var(--gray-100);
+    padding: 1px 5px;
+    border-radius: 4px;
+    font-family: 'Cascadia Code', 'Consolas', monospace;
+    font-size: .82em;
+}
+
+.settings-block { margin-bottom: 26px; }
+
+.settings-block-head {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 12px;
+    margin-bottom: 10px;
+}
+.settings-block-head h3 {
+    font-size: .98rem;
+    font-weight: 600;
+    color: var(--gray-800);
+}
+.settings-hint {
+    font-weight: 400;
+    font-size: .78rem;
+    color: var(--gray-400);
+}
+
+.settings-table td { padding: 6px 10px; vertical-align: middle; }
+.settings-table th { padding: 9px 12px; }
+
+.settings-input {
+    width: 100%;
+    padding: 7px 10px;
+    border: 1.5px solid var(--gray-300);
+    border-radius: var(--radius);
+    font-size: .85rem;
+    color: var(--gray-800);
+    background: var(--white);
+}
+.settings-input:focus {
+    outline: none;
+    border-color: var(--primary);
+    box-shadow: 0 0 0 3px var(--primary-light);
+}
+.settings-col-num { text-align: center; }
+.settings-input.settings-col-num { text-align: center; }
+
+.settings-col-del { width: 44px; text-align: center; }
+.settings-del-btn {
+    background: transparent;
+    border: none;
+    color: var(--gray-400);
+    font-size: 1rem;
+    cursor: pointer;
+    line-height: 1;
+    padding: 4px 6px;
+    border-radius: var(--radius);
+}
+.settings-del-btn:hover { color: var(--danger); background: var(--danger-light); }
+
+.settings-savebar {
+    display: flex;
+    align-items: flex-end;
+    flex-wrap: wrap;
+    gap: 16px;
+    margin-top: 24px;
+    padding-top: 20px;
+    border-top: 1px solid var(--gray-200);
+}
+.settings-pw-group { display: flex; flex-direction: column; gap: 6px; }
+.settings-pw { width: 220px; }
+
+.settings-status {
+    font-size: .85rem;
+    font-weight: 500;
+    align-self: center;
+}
+.settings-status--success { color: var(--success); }
+.settings-status--error   { color: var(--danger); }
+.settings-status--pending { color: var(--gray-500); }
+
 /* ── Footer ────────────────────────────────────────────────── */
 footer {
     background: var(--gray-800);

@@ -1,181 +1,82 @@
 /**
  * appData.js
  * ──────────────────────────────────────────────────────────────
- * Loads ./list.xlsx on startup and exposes its contents to
- * other modules.
+ * Loads the app's reference list (Google Sheet URLs + salaries)
+ * from the AppList Google Apps Script web app and exposes it to
+ * other modules. Replaces the old ./list.xlsx workflow.
  *
- * Reads two sheets:
- *   'Google Sheets URLs'  → [{ name, url }]
- *   'Salaries'            → two tables detected automatically:
- *                           team    → [{ name, dailySalary, bankAccount }]
- *                           drivers → [{ name, dailySalary, bankAccount }]
+ * Endpoint returns JSON:
+ *   {
+ *     sheetUrls: [{ name, url }],
+ *     salaries: {
+ *       team:    [{ name, salary, bankAccount }],   // salary = FULL MONTHLY
+ *       drivers: [{ name, salary, bankAccount }],
+ *     }
+ *   }
  *
- * If the file is missing or a tab is not found / unparseable,
- * an error banner (#appDataError) is shown in the UI.
+ * The full monthly salary is converted to a daily rate here — once —
+ * as round(monthly / DAYS_PER_MONTH). Every downstream consumer keeps
+ * reading `dailySalary` exactly as before.
  *
- * Load order: must come after fileHandler.js (uses FileHandler.detectHeaderRow)
+ * If the endpoint is unreachable / unparseable, an error banner
+ * (#appDataError) is shown in the UI.
+ *
+ * Load order: no hard dependency, but kept after fileHandler.js.
  */
 
 const AppData = (() => {
     'use strict';
 
-    const DATA_FILE    = './list.xlsx';
-    const URLS_TAB     = 'Google Sheets URLs';
-    const SALARIES_TAB = 'Salaries';
+    // AppList Apps Script web app — read (doGet) / write (doPost).
+    const APPLIST_ENDPOINT =
+        'https://script.google.com/macros/s/AKfycbzAHl04tWg21Xs3B6fVpAlaBIukhqXO1GN4KX4YABnCBeUGq8E97hS7bWXhazVeCl-4NA/exec';
+
+    // Working days per month — monthly salary ÷ this = daily rate.
+    // Consistent with the utilization model (13 working days per half-month).
+    const DAYS_PER_MONTH = 26;
+
+    const EMPTY_RAW = { sheetUrls: [], salaries: { team: [], drivers: [] } };
 
     const state = {
+        raw:       EMPTY_RAW,       // exactly as received from the server
         sheetUrls: [],              // [{ name, url }]
-        salaries:  { team: [], drivers: [] },
+        salaries:  { team: [], drivers: [] },   // [{ name, dailySalary, bankAccount }]
     };
 
-    /* ── Column fuzzy-match ──────────────────────────────────── */
-    // Two passes: exact match against terms list, then contains match.
-    // Terms are ordered most-specific first so shorter terms (e.g. "name")
-    // don't shadow longer ones (e.g. "sheet name").
-    function findColIdx(headers, terms) {
-        const lower = headers.map(h => h.toLowerCase().trim());
-        for (const t of terms) {
-            const i = lower.indexOf(t);
-            if (i !== -1) return i;
-        }
-        for (const t of terms) {
-            const i = lower.findIndex(h => h.includes(t));
-            if (i !== -1) return i;
-        }
-        return -1;
+    /* ── Monthly → daily ─────────────────────────────────────── */
+    function toDaily(monthly) {
+        const n = parseFloat((monthly == null ? '' : monthly).toString().replace(/[^\d.]/g, '')) || 0;
+        return n > 0 ? Math.round(n / DAYS_PER_MONTH) : 0;
     }
 
-    /* ── Raw sheet → { headers, rows } ──────────────────────── */
-    function parseRawSheet(ws) {
-        const raw = XLSX.utils.sheet_to_json(ws, {
-            header: 1, defval: '', raw: false, dateNF: 'yyyy-mm-dd',
-        });
-        if (!raw.length) return { headers: [], rows: [] };
-
-        const headerIdx = FileHandler.detectHeaderRow(raw, 40);
-        const headers   = (raw[headerIdx] || []).map(h =>
-            h != null ? h.toString().trim() : ''
-        );
-        const rows = raw
-            .slice(headerIdx + 1)
-            .filter(r => r.some(c => c !== '' && c != null));
-
-        return { headers, rows };
-    }
-
-    /* ── Tab parsers ─────────────────────────────────────────── */
-    function parseUrlsTab(ws) {
-        const { headers, rows } = parseRawSheet(ws);
-
-        const nameIdx = findColIdx(headers, ['sheet name', 'name', 'title']);
-        const urlIdx  = findColIdx(headers, ['url', 'sheet url', 'link', 'google sheet']);
-
-        const missing = [];
-        if (nameIdx === -1) missing.push('Name');
-        if (urlIdx  === -1) missing.push('URL');
-        if (missing.length) {
-            throw new Error(
-                `'${URLS_TAB}' tab: could not locate column(s): ${missing.join(', ')}.`
-            );
-        }
-
-        return rows
-            .filter(r => r[nameIdx] || r[urlIdx])
-            .map(r => ({
-                name: (r[nameIdx] || '').toString().trim(),
-                url:  (r[urlIdx]  || '').toString().trim(),
+    function deriveSalaries(list) {
+        return (list || [])
+            .map(s => ({
+                name:        (s.name || '').toString().trim(),
+                dailySalary: toDaily(s.salary),
+                bankAccount: (s.bankAccount || '').toString().trim(),
             }))
+            .filter(s => s.name);
+    }
+
+    /* ── Apply a raw server payload to state ─────────────────── */
+    function applyData(raw) {
+        const safe = raw && typeof raw === 'object' ? raw : EMPTY_RAW;
+        const sal  = safe.salaries || {};
+        state.raw = {
+            sheetUrls: Array.isArray(safe.sheetUrls) ? safe.sheetUrls : [],
+            salaries: {
+                team:    Array.isArray(sal.team)    ? sal.team    : [],
+                drivers: Array.isArray(sal.drivers) ? sal.drivers : [],
+            },
+        };
+        state.sheetUrls = state.raw.sheetUrls
+            .map(r => ({ name: (r.name || '').toString().trim(), url: (r.url || '').toString().trim() }))
             .filter(r => r.name || r.url);
-    }
-
-    /**
-     * Detect whether a raw row looks like a table header.
-     * Uses EXACT cell value matches only — data rows (person names, numbers,
-     * bank account codes) will never exactly equal these header keywords.
-     */
-    const HEADER_NAME_TERMS = new Set([
-        'name', 'member name', 'member', 'employee', 'employee name',
-        'driver name', 'driver',
-    ]);
-    const HEADER_SALARY_TERMS = new Set([
-        'daily salary', 'salary', 'daily rate', 'rate',
-        'bank account', 'account number', 'account no', 'account', 'bank',
-    ]);
-    function isHeaderCandidate(row) {
-        const cells = row.map(c => (c || '').toString().toLowerCase().trim());
-        return cells.some(c => HEADER_NAME_TERMS.has(c)) &&
-               cells.some(c => HEADER_SALARY_TERMS.has(c));
-    }
-
-    /**
-     * Parse one contiguous table block from `raw` (a 2-D array).
-     * headerIdx = index of the header row in `raw`.
-     * endIdx    = index where this table ends (exclusive), or undefined for EOF.
-     * bankAccount column is optional (bankIdx may be -1 → stored as '').
-     */
-    function parseSalaryTable(raw, headerIdx, endIdx) {
-        const headers   = (raw[headerIdx] || []).map(h => (h || '').toString().trim());
-        const nameIdx   = findColIdx(headers, ['name', 'member name', 'member', 'employee']);
-        // 'salary/day' and 'salary per day' must come before 'salary' so the
-        // daily-rate column is preferred over the monthly-salary column.
-        const salaryIdx = findColIdx(headers, ['daily salary', 'salary/day', 'salary per day', 'daily rate', 'salary', 'rate']);
-        const bankIdx   = findColIdx(headers, ['bank account', 'account number', 'account no', 'account', 'bank']);
-
-        if (nameIdx === -1 || salaryIdx === -1) return [];
-
-        return raw
-            .slice(headerIdx + 1, endIdx)
-            .filter(r => r.some(c => c !== '' && c != null))
-            .map(r => ({
-                name:        (r[nameIdx]   || '').toString().trim(),
-                dailySalary: (r[salaryIdx] || '').toString().trim(),
-                bankAccount: bankIdx !== -1 ? (r[bankIdx] || '').toString().trim() : '',
-            }))
-            .filter(r => r.name);
-    }
-
-    const DRIVER_COL_TERMS = new Set(['driver name', 'driver']);
-
-    function parseSalariesTab(ws) {
-        const raw = XLSX.utils.sheet_to_json(ws, {
-            header: 1, defval: '', raw: false, dateNF: 'yyyy-mm-dd',
-        });
-        if (!raw.length) return { team: [], drivers: [] };
-
-        // Find the main header row (must have both a name col and a salary/account col)
-        const teamHeaderIdx = raw.findIndex(isHeaderCandidate);
-        if (teamHeaderIdx === -1) {
-            throw new Error(
-                `'${SALARIES_TAB}' tab: could not detect header row. ` +
-                `The team table must have a "Name" column and a "Salary"/"Account"/"Rate" column.`
-            );
-        }
-
-        const team = parseSalaryTable(raw, teamHeaderIdx, undefined);
-
-        // Detect driver column within the SAME header row (side-by-side layout).
-        // Column G only has "Driver Name" with no salary column, so isHeaderCandidate
-        // won't fire for it — instead we scan the header row cells directly.
-        const headers = (raw[teamHeaderIdx] || []).map(h => (h || '').toString().toLowerCase().trim());
-        const driverColIdx = headers.findIndex(h => DRIVER_COL_TERMS.has(h));
-
-        let drivers = [];
-        if (driverColIdx !== -1) {
-            drivers = raw
-                .slice(teamHeaderIdx + 1)
-                .filter(r => r.some(c => c !== '' && c != null))
-                .map(r => (r[driverColIdx] || '').toString().trim())
-                .filter(name => name)
-                .map(name => ({ name, dailySalary: '', bankAccount: '' }));
-        } else {
-            // Fallback: look for a second vertical header block below team table
-            const secondHeaderIdx = raw.findIndex((row, i) => i > teamHeaderIdx && isHeaderCandidate(row));
-            if (secondHeaderIdx !== -1) {
-                drivers = parseSalaryTable(raw, secondHeaderIdx, undefined);
-            }
-        }
-
-        return { team, drivers };
+        state.salaries = {
+            team:    deriveSalaries(state.raw.salaries.team),
+            drivers: deriveSalaries(state.raw.salaries.drivers),
+        };
     }
 
     /* ── Error banner ────────────────────────────────────────── */
@@ -188,66 +89,53 @@ const AppData = (() => {
         el.hidden = false;
     }
 
+    function clearError() {
+        const el = document.getElementById('appDataError');
+        if (el) el.hidden = true;
+    }
+
+    /* ── Fetch from endpoint ─────────────────────────────────── */
+    async function fetchData() {
+        const res = await fetch(APPLIST_ENDPOINT, { cache: 'no-store' });
+        if (!res.ok) throw new Error(`HTTP ${res.status}`);
+        const data = await res.json();
+        if (!data || typeof data !== 'object') throw new Error('Malformed response.');
+        return data;
+    }
+
     /* ── Public init ─────────────────────────────────────────── */
     async function init() {
-        // fetch() is blocked by the browser when the app is opened directly
-        // from the filesystem (file:// protocol). Skip silently — the file
-        // will load correctly when served via GitHub Pages or a local server.
-        if (window.location.protocol === 'file:') return;
-
-        let workbook;
-
         try {
-            const res = await fetch(DATA_FILE);
-            if (!res.ok) throw new Error(`HTTP ${res.status} — file not found`);
-            const buf = await res.arrayBuffer();
-            workbook = XLSX.read(new Uint8Array(buf), {
-                type: 'array', cellDates: true, dateNF: 'yyyy-mm-dd',
-            });
+            applyData(await fetchData());
+            clearError();
+            console.log(
+                `AppData loaded — sheets: ${state.sheetUrls.length}, ` +
+                `team: ${state.salaries.team.length}, drivers: ${state.salaries.drivers.length}`
+            );
+            return true;
         } catch (err) {
-            showError([`Could not load list.xlsx: ${err.message}`]);
-            return;
+            showError([`Could not load app data from the server: ${err.message}`]);
+            return false;
         }
+    }
 
-        const errors = [];
-
-        // 'Google Sheets URLs' tab
-        const urlsWs = workbook.Sheets[URLS_TAB];
-        if (!urlsWs) {
-            errors.push(`Tab '${URLS_TAB}' not found in list.xlsx.`);
-        } else {
-            try {
-                state.sheetUrls = parseUrlsTab(urlsWs);
-            } catch (err) {
-                errors.push(err.message);
-            }
-        }
-
-        // 'Salaries' tab
-        const salariesWs = workbook.Sheets[SALARIES_TAB];
-        if (!salariesWs) {
-            errors.push(`Tab '${SALARIES_TAB}' not found in list.xlsx.`);
-        } else {
-            try {
-                const parsed = parseSalariesTab(salariesWs);
-                state.salaries = parsed;
-                console.log(
-                    `Salaries loaded — team: ${parsed.team.length}, drivers: ${parsed.drivers.length}`
-                );
-            } catch (err) {
-                errors.push(err.message);
-            }
-        }
-
-        if (errors.length) showError(errors);
+    // Re-fetch on demand (e.g. after the admin saves changes).
+    async function reload() {
+        return init();
     }
 
     /* ── Public API ──────────────────────────────────────────── */
     return {
         init,
+        reload,
+        getEndpoint:       () => APPLIST_ENDPOINT,
         getSheetUrls:      () => state.sheetUrls,
         getSalaries:       () => state.salaries.team,     // [{ name, dailySalary, bankAccount }]
         getDriverSalaries: () => state.salaries.drivers,  // [{ name, dailySalary, bankAccount }]
+        // Raw monthly-salary data for the admin Settings tab (deep copy).
+        getRawData:        () => JSON.parse(JSON.stringify(state.raw)),
+        // Replace state from a fresh server payload (used after a save).
+        setData:           (raw) => { applyData(raw); clearError(); },
     };
 
 })();

@@ -159,7 +159,7 @@ const AllowanceChecker = (() => {
         if (!urlList.length) {
             return {
                 rows:         [],
-                warnings:     ['No Google Sheet URLs found in list.xlsx — nothing to fetch.'],
+                warnings:     ['No Google Sheet URLs found in the app list (Settings tab) — nothing to fetch.'],
                 sourceCounts: new Map(),
             };
         }

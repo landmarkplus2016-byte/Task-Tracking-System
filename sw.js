@@ -3,7 +3,7 @@
  * Caches static assets for offline use.
  */
 
-const CACHE_NAME = 'task-tracker-v2.189';
+const CACHE_NAME = 'task-tracker-v2.190';
 
 const STATIC_ASSETS = [
     './',
@@ -16,6 +16,7 @@ const STATIC_ASSETS = [
     './js/siteIdJc.js',
     './js/pocTracking.js',
     './js/allowanceChecker.js',
+    './js/adminSettings.js',
     './js/app.js',
     './manifest.json',
     './icons/icon.svg',
