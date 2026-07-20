@@ -39,15 +39,18 @@ var TEAM_TAB    = 'Team Salaries';
 var DRIVERS_TAB = 'Driver Salaries';
 
 // ── READ ────────────────────────────────────────────────────────────────
-function doGet() {
-  var data = {
+function readAll_() {
+  return {
     sheetUrls: readUrls_(),
     salaries: {
       team:    readSalaries_(TEAM_TAB),
       drivers: readSalaries_(DRIVERS_TAB),
     },
   };
-  return json_(data);
+}
+
+function doGet() {
+  return json_(readAll_());
 }
 
 // ── WRITE ───────────────────────────────────────────────────────────────
@@ -63,6 +66,11 @@ function doPost(e) {
     return json_({ ok: false, error: 'Wrong password.' });
   }
 
+  // Password-only check used to unlock the admin tab — no write.
+  if (payload.action === 'login') {
+    return json_({ ok: true, data: readAll_() });
+  }
+
   var data = payload.data || {};
   var lock = LockService.getScriptLock();
   lock.waitLock(20000);   // serialise concurrent saves
@@ -75,13 +83,7 @@ function doPost(e) {
   }
 
   // Return the freshly-saved state so the client can confirm.
-  return json_({
-    ok: true,
-    data: {
-      sheetUrls: readUrls_(),
-      salaries: { team: readSalaries_(TEAM_TAB), drivers: readSalaries_(DRIVERS_TAB) },
-    },
-  });
+  return json_({ ok: true, data: readAll_() });
 }
 
 // ── Sheet helpers ───────────────────────────────────────────────────────

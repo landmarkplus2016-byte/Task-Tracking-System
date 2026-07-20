@@ -834,6 +834,15 @@ main {
     font-size: .82em;
 }
 
+.settings-lock { max-width: 560px; }
+.settings-lock-row {
+    display: flex;
+    align-items: center;
+    flex-wrap: wrap;
+    gap: 12px;
+    margin-top: 4px;
+}
+
 .settings-block { margin-bottom: 26px; }
 
 .settings-block-head {

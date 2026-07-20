@@ -6,14 +6,22 @@
  * list.xlsx, and save it back to the shared Google Sheet via the
  * AppList Apps Script web app (doPost).
  *
- * - Read data comes from AppData (already loaded on startup).
- * - Salaries are edited as FULL MONTHLY amounts (the raw value);
- *   AppData derives the daily rate (÷26) for the rest of the app.
- * - Saving requires the admin password, which is validated
- *   server-side by the Apps Script — never stored in this file.
+ * Access flow:
+ *   1. Seven clicks on the sidebar logo reveal the Settings tab,
+ *      which opens on a password lock screen (wired in app.js →
+ *      AdminSettings.reveal()).
+ *   2. The admin enters the password → it is verified SERVER-SIDE
+ *      (doPost action:'login'). Only on success are the tables shown,
+ *      populated from the login response (so there is no dependency on
+ *      the startup fetch having finished).
+ *   3. Saving reuses the verified password for that session.
  *
- * The tab itself is revealed by a 7-click gesture on the sidebar
- * logo (wired in app.js), then AdminSettings.reveal() is called.
+ * The password is never stored in this file — it is validated by the
+ * Apps Script. The reveal is session-only: reopening the app hides the
+ * tab again and re-requires the password.
+ *
+ * Salaries are edited as FULL MONTHLY amounts (the raw value);
+ * AppData derives the daily rate (÷26) for the rest of the app.
  *
  * Load order: after appData.js.
  */
@@ -23,7 +31,8 @@ const AdminSettings = (() => {
 
     const $ = id => document.getElementById(id);
 
-    let unlocked = false;   // has the 7-click gesture revealed the tab this session
+    let revealed        = false;   // Settings tab button unhidden this session
+    let sessionPassword = null;    // verified password, kept in memory only
 
     /* ── Cell factories ──────────────────────────────────────── */
     function textCell(value, cls) {
@@ -113,48 +122,99 @@ const AdminSettings = (() => {
         };
     }
 
-    /* ── Status line ─────────────────────────────────────────── */
-    function setStatus(msg, kind) {
-        const el = $('settingsStatus');
+    /* ── Status lines ────────────────────────────────────────── */
+    function setStatus(msg, kind) { setLine('settingsStatus', msg, kind); }
+    function setLockStatus(msg, kind) { setLine('settingsLockStatus', msg, kind); }
+    function setLine(id, msg, kind) {
+        const el = $(id);
         if (!el) return;
         el.textContent = msg;
         el.className = 'settings-status' + (kind ? ' settings-status--' + kind : '');
     }
 
-    /* ── Save (POST to Apps Script) ──────────────────────────── */
-    async function save() {
-        const password = $('settingsPassword').value;
-        if (!password) {
-            setStatus('Enter the admin password to save.', 'error');
-            $('settingsPassword').focus();
+    /* ── Endpoint POST helper ────────────────────────────────── */
+    // text/plain avoids a CORS preflight (Apps Script can't answer OPTIONS).
+    async function postJson(body) {
+        const res = await fetch(AppData.getEndpoint(), {
+            method:  'POST',
+            cache:   'no-store',
+            headers: { 'Content-Type': 'text/plain;charset=utf-8' },
+            body:    JSON.stringify(body),
+        });
+        return res.json();
+    }
+
+    /* ── Lock / unlock UI ────────────────────────────────────── */
+    function showLock() {
+        $('settingsLock').hidden = false;
+        $('settingsContent').hidden = true;
+        setLockStatus('', '');
+    }
+    function showContent() {
+        $('settingsLock').hidden = true;
+        $('settingsContent').hidden = false;
+    }
+
+    async function unlock() {
+        const pw = $('settingsLockPw').value;
+        if (!pw) {
+            setLockStatus('Enter the admin password.', 'error');
+            $('settingsLockPw').focus();
             return;
         }
+
+        const btn = $('settingsUnlockBtn');
+        btn.disabled = true;
+        setLockStatus('Verifying…', 'pending');
+
+        try {
+            const result = await postJson({ action: 'login', password: pw });
+            if (!result || !result.ok) {
+                setLockStatus((result && result.error) || 'Wrong password.', 'error');
+                return;
+            }
+            sessionPassword = pw;
+            AppData.setData(result.data);   // fresh data straight from the server
+            $('settingsLockPw').value = '';
+            render();
+            showContent();
+        } catch (err) {
+            setLockStatus(`Could not verify: ${err.message}`, 'error');
+        } finally {
+            btn.disabled = false;
+        }
+    }
+
+    function lockNow() {
+        sessionPassword = null;
+        $('settingsLockPw').value = '';
+        showLock();
+    }
+
+    /* ── Save (POST to Apps Script) ──────────────────────────── */
+    async function save() {
+        if (!sessionPassword) { showLock(); return; }
 
         const saveBtn = $('settingsSaveBtn');
         saveBtn.disabled = true;
         setStatus('Saving…', 'pending');
 
-        const payload = JSON.stringify({ password, data: collectData() });
-
         try {
-            // text/plain avoids a CORS preflight (Apps Script can't answer OPTIONS).
-            const res = await fetch(AppData.getEndpoint(), {
-                method:  'POST',
-                cache:   'no-store',
-                headers: { 'Content-Type': 'text/plain;charset=utf-8' },
-                body:    payload,
-            });
-            const result = await res.json();
+            const result = await postJson({ password: sessionPassword, data: collectData() });
 
             if (!result || !result.ok) {
+                // Password may have changed on the server — force re-login.
+                if (result && /password/i.test(result.error || '')) {
+                    sessionPassword = null;
+                    showLock();
+                    setLockStatus('Session expired — enter the password again.', 'error');
+                    return;
+                }
                 setStatus((result && result.error) || 'Save failed.', 'error');
                 return;
             }
 
-            // Server echoes the saved state — adopt it so the rest of the
-            // app (Allowance Checker) uses the new data immediately.
-            AppData.setData(result.data);
-            $('settingsPassword').value = '';
+            AppData.setData(result.data);   // adopt saved state app-wide
             render();
             setStatus('✓ Saved. All users get the update on their next load.', 'success');
 
@@ -165,18 +225,24 @@ const AdminSettings = (() => {
         }
     }
 
-    /* ── Reveal / activate the tab ───────────────────────────── */
+    /* ── Reveal the tab (after the 7-click gesture) ──────────── */
     function reveal() {
         const btn = $('tabBtnSettings');
         if (!btn) return;
-        unlocked = true;
+        revealed = true;
         btn.hidden = false;
-        render();
-        btn.click();   // switch to the Settings tab
+        showLock();      // always open on the password gate
+        btn.click();     // switch to the Settings tab
+        $('settingsLockPw').focus();
     }
 
     /* ── Init ────────────────────────────────────────────────── */
     function init() {
+        $('settingsUnlockBtn').addEventListener('click', unlock);
+        $('settingsLockPw').addEventListener('keydown', (e) => {
+            if (e.key === 'Enter') { e.preventDefault(); unlock(); }
+        });
+
         $('settingsAddUrl').addEventListener('click', () =>
             addUrlRow($('settingsUrlsTable').querySelector('tbody')));
         $('settingsAddTeam').addEventListener('click', () =>
@@ -185,6 +251,7 @@ const AdminSettings = (() => {
             addSalaryRow($('settingsDriverTable').querySelector('tbody')));
 
         $('settingsSaveBtn').addEventListener('click', save);
+        $('settingsLockBtn').addEventListener('click', lockNow);
         $('settingsReloadBtn').addEventListener('click', async () => {
             setStatus('Reloading…', 'pending');
             const ok = await AppData.reload();
@@ -193,6 +260,6 @@ const AdminSettings = (() => {
         });
     }
 
-    return { init, reveal, isUnlocked: () => unlocked };
+    return { init, reveal, isUnlocked: () => revealed };
 
 })();

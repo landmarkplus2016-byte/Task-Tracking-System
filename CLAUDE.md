@@ -249,11 +249,18 @@ Google Sheet with three tabs — `Google Sheets URLs`, `Team Salaries`,
 `Driver Salaries` (Salary column = **full monthly** amount). An Apps
 Script web app (`apps-script/Code.gs`) serves it as JSON and accepts
 password-guarded writes. The password is validated **server-side only**
-— it is never stored in the client. The 7-click logo gesture only
-unhides the Settings UI; it does not grant write access. Saving from
-the Settings tab POSTs with `Content-Type: text/plain` to avoid a CORS
-preflight (Apps Script can't answer OPTIONS). `list.xlsx` is retired
-(no fallback).
+— it is never stored in the client.
+
+**Access flow:** the 7-click logo gesture reveals the Settings tab,
+which opens on a **password lock screen**. Entering the password fires
+`doPost` with `action:'login'`, which validates it server-side and, on
+success, returns the current data — used to populate the tables (so the
+tab never depends on the slow startup fetch having finished). The
+verified password is kept in memory for the session and reused when
+saving. Reopening the app hides the tab again and re-requires the
+password (session-only reveal). Both login and save POST with
+`Content-Type: text/plain` to avoid a CORS preflight (Apps Script can't
+answer OPTIONS). `list.xlsx` is retired (no fallback).
 
 **Redeploy gotcha:** editing `apps-script/Code.gs` has no effect until
 the Apps Script web app is redeployed. To keep the same `/exec` URL,

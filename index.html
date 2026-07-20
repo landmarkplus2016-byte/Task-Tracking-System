@@ -489,10 +489,30 @@
 
             <section class="results-section">
                 <h2>⚙️ Settings — App List</h2>
+
+                <!-- ── Lock screen (shown until password verified) ── -->
+                <div id="settingsLock" class="settings-lock">
+                    <p class="settings-intro">
+                        This area is restricted. Enter the admin password to view and edit
+                        the app list (Google Sheet URLs and salaries).
+                    </p>
+                    <div class="settings-lock-row">
+                        <input type="password" class="settings-input settings-pw" id="settingsLockPw"
+                               autocomplete="off" placeholder="Admin password">
+                        <button class="btn btn-primary btn-large" id="settingsUnlockBtn" type="button">
+                            <span>🔓</span> Unlock
+                        </button>
+                        <span class="settings-status" id="settingsLockStatus"></span>
+                    </div>
+                </div>
+
+                <!-- ── Content (revealed after unlock) ────────────── -->
+                <div id="settingsContent" hidden>
+
                 <p class="settings-intro">
                     Edit the Google Sheet URLs and salaries here instead of updating
                     <code>list.xlsx</code>. Changes are saved to the shared Google Sheet and
-                    apply to all users on their next load. Enter the admin password to save.
+                    apply to all users on their next load.
                 </p>
 
                 <!-- ── Google Sheets URLs ─────────────────────────── -->
@@ -559,19 +579,19 @@
 
                 <!-- ── Save bar ───────────────────────────────────── -->
                 <div class="settings-savebar">
-                    <div class="settings-pw-group">
-                        <label class="allowance-label" for="settingsPassword">Admin Password</label>
-                        <input type="password" class="settings-input settings-pw" id="settingsPassword"
-                               autocomplete="off" placeholder="Required to save">
-                    </div>
                     <button class="btn btn-success btn-large" id="settingsSaveBtn" type="button">
                         <span>💾</span> Save to Google Sheet
                     </button>
                     <button class="btn btn-outline btn-large" id="settingsReloadBtn" type="button">
                         <span>↻</span> Discard &amp; Reload
                     </button>
+                    <button class="btn btn-outline btn-large" id="settingsLockBtn" type="button">
+                        <span>🔒</span> Lock
+                    </button>
                     <span class="settings-status" id="settingsStatus"></span>
                 </div>
+
+                </div><!-- /settingsContent -->
 
             </section>
 
