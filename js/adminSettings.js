@@ -7,9 +7,8 @@
  * AppList Apps Script web app (doPost).
  *
  * Access flow:
- *   1. Seven clicks on the sidebar logo reveal the Settings tab,
- *      which opens on a password lock screen (wired in app.js →
- *      AdminSettings.reveal()).
+ *   1. The Settings tab is always visible in the sidebar; opening it
+ *      shows a password lock screen (the tables are hidden).
  *   2. The admin enters the password → it is verified SERVER-SIDE
  *      (doPost action:'login'). Only on success are the tables shown,
  *      populated from the login response (so there is no dependency on
@@ -17,8 +16,8 @@
  *   3. Saving reuses the verified password for that session.
  *
  * The password is never stored in this file — it is validated by the
- * Apps Script. The reveal is session-only: reopening the app hides the
- * tab again and re-requires the password.
+ * Apps Script. Unlock is session-only: reopening the app returns to the
+ * lock screen and re-requires the password.
  *
  * Salaries are edited as FULL MONTHLY amounts (the raw value);
  * AppData derives the daily rate (÷26) for the rest of the app.
@@ -31,7 +30,6 @@ const AdminSettings = (() => {
 
     const $ = id => document.getElementById(id);
 
-    let revealed        = false;   // Settings tab button unhidden this session
     let sessionPassword = null;    // verified password, kept in memory only
 
     /* ── Cell factories ──────────────────────────────────────── */
@@ -225,19 +223,18 @@ const AdminSettings = (() => {
         }
     }
 
-    /* ── Reveal the tab (after the 7-click gesture) ──────────── */
-    function reveal() {
-        const btn = $('tabBtnSettings');
-        if (!btn) return;
-        revealed = true;
-        btn.hidden = false;
-        showLock();      // always open on the password gate
-        btn.click();     // switch to the Settings tab
-        $('settingsLockPw').focus();
-    }
-
     /* ── Init ────────────────────────────────────────────────── */
     function init() {
+        showLock();   // panel always starts locked
+
+        // Focus the password box whenever the tab is opened while locked.
+        const tabBtn = $('tabBtnSettings');
+        if (tabBtn) {
+            tabBtn.addEventListener('click', () => {
+                if (!sessionPassword) setTimeout(() => $('settingsLockPw').focus(), 0);
+            });
+        }
+
         $('settingsUnlockBtn').addEventListener('click', unlock);
         $('settingsLockPw').addEventListener('keydown', (e) => {
             if (e.key === 'Enter') { e.preventDefault(); unlock(); }
@@ -260,6 +257,6 @@ const AdminSettings = (() => {
         });
     }
 
-    return { init, reveal, isUnlocked: () => revealed };
+    return { init };
 
 })();

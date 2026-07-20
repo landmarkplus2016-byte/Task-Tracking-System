@@ -567,31 +567,6 @@
         location.reload(true);
     });
 
-    /* ── Admin Settings: 7-click logo gesture ─────────────────── */
-    // Seven clicks on the sidebar logo within 2 s reveals the Settings
-    // tab. Saving from there still requires the admin password (checked
-    // server-side), so this gesture only unhides the UI.
-    (() => {
-        const logo = $('brandLogo');
-        if (!logo || typeof AdminSettings === 'undefined') return;
-
-        let clicks = 0;
-        let timer  = null;
-
-        logo.style.cursor = 'pointer';
-        logo.addEventListener('click', () => {
-            if (AdminSettings.isUnlocked()) return;   // already revealed
-            clicks++;
-            clearTimeout(timer);
-            timer = setTimeout(() => { clicks = 0; }, 2000);
-            if (clicks >= 7) {
-                clicks = 0;
-                clearTimeout(timer);
-                AdminSettings.reveal();
-            }
-        });
-    })();
-
     /* ── Initialise ───────────────────────────────────────────── */
     initTabs();
     AppData.init();

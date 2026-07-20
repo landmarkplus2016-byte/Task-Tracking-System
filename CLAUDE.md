@@ -40,9 +40,10 @@ separate state, separate logic:
 Tab switching is handled by `initTabs()` in `app.js` using
 `aria-controls` as the link between button and panel.
 
-The **Settings** tab button is hidden by default. It is revealed by
-clicking the sidebar logo (`#brandLogo`) **7 times within 2 s** — the
-gesture is wired in `app.js` and calls `AdminSettings.reveal()`.
+The **Settings** tab is always visible in the sidebar, but opening it
+shows a password lock screen — the data (and edit/save) are gated by an
+admin password validated **server-side** by the Apps Script. See the
+"App Data / Settings" section below.
 
 ---
 
@@ -223,7 +224,7 @@ These are hardcoded — there is no settings UI.
 
 - **`js/app.js`** — RF-TX tab wiring, tab switching,
   `findSheetWithId()`, `checkJobCodeDuplicates()`, Old Tasks filter,
-  reset logic, 7-click logo gesture for the Settings tab
+  reset logic
 - **`js/pocTracking.js`** — POC Tracking tab, same structure as
   app.js but keyed on Job Code and POC3 Tracking sheet
 - **`js/siteIdJc.js`** — Site ID-JC tab, fully self-contained
@@ -251,14 +252,14 @@ Script web app (`apps-script/Code.gs`) serves it as JSON and accepts
 password-guarded writes. The password is validated **server-side only**
 — it is never stored in the client.
 
-**Access flow:** the 7-click logo gesture reveals the Settings tab,
-which opens on a **password lock screen**. Entering the password fires
-`doPost` with `action:'login'`, which validates it server-side and, on
-success, returns the current data — used to populate the tables (so the
-tab never depends on the slow startup fetch having finished). The
-verified password is kept in memory for the session and reused when
-saving. Reopening the app hides the tab again and re-requires the
-password (session-only reveal). Both login and save POST with
+**Access flow:** the Settings tab is always visible but opens on a
+**password lock screen**. Entering the password fires `doPost` with
+`action:'login'`, which validates it server-side and, on success,
+returns the current data — used to populate the tables (so the tab
+never depends on the slow startup fetch having finished). The verified
+password is kept in memory for the session and reused when saving.
+Reopening the app returns to the lock screen (session-only unlock).
+Both login and save POST with
 `Content-Type: text/plain` to avoid a CORS preflight (Apps Script can't
 answer OPTIONS). `list.xlsx` is retired (no fallback).
 
