@@ -472,6 +472,7 @@ main {
 .result-changed  { background: var(--warning-light);  border-color: #fcd34d; }
 .result-unchanged{ background: var(--gray-100);        border-color: var(--gray-200); }
 .result-total    { background: var(--primary-light);   border-color: #bfdbfe; }
+.result-conflict { background: var(--danger-light);     border-color: #fca5a5; }
 
 .result-number {
     font-size: 2.2rem;
@@ -484,6 +485,7 @@ main {
 .result-changed  .result-number { color: var(--warning); }
 .result-unchanged.result-number { color: var(--gray-600); }
 .result-total    .result-number { color: var(--primary); }
+.result-conflict .result-number { color: var(--danger); }
 
 .result-label { font-size: .78rem; color: var(--gray-600); font-weight: 500; }
 
@@ -604,6 +606,18 @@ main {
     margin-left: auto;
     margin-right: auto;
     margin-bottom: 24px;
+}
+
+.results-grid--triple {
+    grid-template-columns: repeat(3, 1fr);
+    max-width: 640px;
+    margin-left: auto;
+    margin-right: auto;
+    margin-bottom: 24px;
+}
+
+@media (max-width: 640px) {
+    .results-grid--triple { grid-template-columns: 1fr; }
 }
 
 /* ── Allowance Checker — Controls ─────────────────────────── */

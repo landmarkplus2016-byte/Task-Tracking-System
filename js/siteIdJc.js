@@ -16,6 +16,13 @@
  *   Any sheet whose name contains "Tracking" (case-insensitive).
  *   If more than one such sheet exists in a file, an error is shown.
  *
+ * Output cleanup (always applied):
+ *   - De-duplication: the same Site ID-JC combination repeats many times
+ *     across the source files; only one row per combination survives.
+ *   - Old/New conflict check: if the same combination is classified once
+ *     as "Old" and once as "New", BOTH rows are kept (one per class),
+ *     highlighted red in the workbook and listed in the conflicts panel.
+ *
  * Column name variants handled automatically:
  *   Site ID      : "Physical Site ID" (PC) | "Site ID" (POC)
  *   Job Code     : "Job Code" (both)
@@ -204,8 +211,94 @@ const SiteIdJc = (() => {
         },
     };
 
+    // Rows whose Site ID-JC combo is classified both Old and New
+    const CONFLICT_STYLE = {
+        fill: { fgColor: { rgb: 'FFC7CE' } },
+        font: { color: { rgb: '9C0006' }, bold: true },
+        border: {
+            top:    { style: 'thin', color: { rgb: '000000' } },
+            bottom: { style: 'thin', color: { rgb: '000000' } },
+            left:   { style: 'thin', color: { rgb: '000000' } },
+            right:  { style: 'thin', color: { rgb: '000000' } },
+        },
+    };
+
+    /* ── De-duplication + Old/New conflict detection ──────────── */
+    /**
+     * Collapses repeated Site ID-JC combinations into a single row.
+     * A combination that carries more than one Old/New classification is
+     * a conflict: one row per class is kept so both stay visible.
+     *
+     * @param  {Array<{combo,date,oldNew,contractor,file}>} entries
+     * @return {{ dataRows, conflictRows:Set<number>, conflicts:Array, duplicatesRemoved:number }}
+     */
+    function dedupeAndCheckConflicts(entries) {
+        // Map<comboLower, { combo, variants: Map<oldNew, {entry, count, files:Set, dates:Set}> }>
+        const byCombo = new Map();
+
+        // Old first, then New, then anything else — keeps the two sides of a
+        // conflict adjacent and in a predictable order.
+        const CLASS_ORDER = { 'Old': 0, 'New': 1 };
+        const byClass = (a, b) =>
+            (CLASS_ORDER[a] ?? 2) - (CLASS_ORDER[b] ?? 2);
+
+        entries.forEach((e, i) => {
+            // Rows with no Site ID and no Job Code carry nothing to match on —
+            // give each its own key so they are never merged together.
+            const combo = e.combo.trim();
+            const key   = combo ? combo.toLowerCase() : ` ${i}`;
+            if (!byCombo.has(key)) byCombo.set(key, { combo: e.combo, variants: new Map() });
+            const rec  = byCombo.get(key);
+            const vKey = e.oldNew || '';
+            if (!rec.variants.has(vKey)) {
+                rec.variants.set(vKey, { entry: e, count: 0, files: new Set(), dates: new Set() });
+            }
+            const v = rec.variants.get(vKey);
+            v.count++;
+            v.files.add(e.file);
+            if (e.date) v.dates.add(e.date);
+        });
+
+        const dataRows      = [];
+        const conflictRows  = new Set();   // 0-based index into dataRows
+        const conflicts     = [];
+
+        byCombo.forEach(rec => {
+            // Rows with an unparseable date ('' class) are dropped when the
+            // same combo also has a properly classified row.
+            const classes = [...rec.variants.keys()].filter(k => k !== '').sort(byClass);
+            const keep    = classes.length > 0 ? classes : [...rec.variants.keys()];
+            const isConflict = classes.length > 1;
+
+            if (isConflict) {
+                conflicts.push({
+                    combo:    rec.combo,
+                    variants: keep.map(k => ({
+                        label: k,
+                        count: rec.variants.get(k).count,
+                        dates: [...rec.variants.get(k).dates],
+                        files: [...rec.variants.get(k).files],
+                    })),
+                });
+            }
+
+            keep.forEach(k => {
+                const e = rec.variants.get(k).entry;
+                if (isConflict) conflictRows.add(dataRows.length);
+                dataRows.push([e.combo, e.date, e.oldNew, e.contractor]);
+            });
+        });
+
+        return {
+            dataRows,
+            conflictRows,
+            conflicts,
+            duplicatesRemoved: entries.length - dataRows.length,
+        };
+    }
+
     /* ── Excel workbook builder ───────────────────────────────── */
-    function buildWorkbook(dataRows) {
+    function buildWorkbook(dataRows, conflictRows = new Set()) {
         const headers = ['Site ID-JC', 'Task Date', 'Old/New', 'Contractor'];
         const ws      = XLSX.utils.aoa_to_sheet([headers, ...dataRows]);
 
@@ -225,9 +318,10 @@ const SiteIdJc = (() => {
             if (ws[ref]) ws[ref].s = HEADER_STYLE;
         }
         for (let r = 1; r <= dataRows.length; r++) {
+            const style = conflictRows.has(r - 1) ? CONFLICT_STYLE : DATA_STYLE;
             for (let c = 0; c < headers.length; c++) {
                 const ref = XLSX.utils.encode_cell({ r, c });
-                if (ws[ref]) ws[ref].s = DATA_STYLE;
+                if (ws[ref]) ws[ref].s = style;
             }
         }
 
@@ -320,6 +414,36 @@ const SiteIdJc = (() => {
         panel.hidden = false;
     }
 
+    /* ── Old/New conflict panel renderer ─────────────────────── */
+    function renderOldNewPanel(conflicts) {
+        const panel = $('siteIdOldNewPanel');
+        if (conflicts.length === 0) { panel.hidden = true; return; }
+
+        $('siteIdOldNewTitle').textContent =
+            `🔴 ${conflicts.length} Site ID-JC combination${conflicts.length > 1 ? 's' : ''} ` +
+            `classified both Old and New`;
+
+        $('siteIdOldNewList').innerHTML = conflicts.map(({ combo, variants }) => {
+            const tags = variants.map(v => {
+                // A class can span many dates — show the first few only.
+                const shown = v.dates.slice(0, 3).map(d => escHtml(d)).join(', ');
+                const more  = v.dates.length > 3 ? ` +${v.dates.length - 3}` : '';
+                const dates = v.dates.length ? ` — ${shown}${more}` : '';
+                const files = v.files.map(f =>
+                    `<span style="color:var(--gray-400);font-size:.74rem;">(${escHtml(f)})</span>`
+                ).join(' ');
+                return `<span class="jc-site-item"><b>${escHtml(v.label)}</b>${dates} ` +
+                       `<span style="color:var(--gray-500);">×${v.count}</span> ${files}</span>`;
+            }).join('');
+            return `<li>
+                <span class="jc-tag">${escHtml(combo)}</span>
+                <span class="jc-sites">${tags}</span>
+            </li>`;
+        }).join('');
+
+        panel.hidden = false;
+    }
+
     /* ── Main processing function ─────────────────────────────── */
     async function processAll() {
         if (_files.length === 0) return;
@@ -403,9 +527,15 @@ const SiteIdJc = (() => {
                                 ? `${siteId}-${jobCode}`
                                 : (siteId || jobCode);
 
-                            return [siteIdJc, formatDate(taskDate), classifyDate(taskDate), contractor];
+                            return {
+                                combo:      siteIdJc,
+                                date:       formatDate(taskDate),
+                                oldNew:     classifyDate(taskDate),
+                                contractor,
+                                file:       file.name,
+                            };
                         })
-                        .filter(row => row[0] || row[1]);
+                        .filter(r => r.combo || r.date);
 
                     allRows.push(...rows);
                     console.log(`✓ "${file.name}" [${sheetType}] — ${rows.length} rows`);
@@ -419,12 +549,19 @@ const SiteIdJc = (() => {
                 throw new Error('No data could be extracted from any file:\n\n' + skipped.join('\n'));
             }
 
+            setProgress(92, 'Removing duplicates & checking Old/New conflicts…');
+            const { dataRows, conflictRows, conflicts, duplicatesRemoved } =
+                dedupeAndCheckConflicts(allRows);
+
             setProgress(95, 'Generating Excel workbook…');
-            _workbook = buildWorkbook(allRows);
+            _workbook = buildWorkbook(dataRows, conflictRows);
 
             setProgress(100, 'Done!');
-            $('siteIdRowCount').textContent  = allRows.length;
-            $('siteIdResultsSection').hidden = false;
+            $('siteIdRowCount').textContent      = dataRows.length;
+            $('siteIdDupeRemoved').textContent   = duplicatesRemoved;
+            $('siteIdConflictCount').textContent = conflicts.length;
+            $('siteIdResultsSection').hidden     = false;
+            renderOldNewPanel(conflicts);
 
             // Detect JCs paired with more than one site, suppressing conflicts
             // where every source file is an old-tracking file.
@@ -490,6 +627,7 @@ const SiteIdJc = (() => {
         $('siteIdResultsSection').hidden    = true;
         $('siteIdProgressSection').hidden   = true;
         $('siteIdDuplicateJcPanel').hidden  = true;
+        $('siteIdOldNewPanel').hidden       = true;
     }
 
     /* ── Public API ───────────────────────────────────────────── */

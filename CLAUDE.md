@@ -90,6 +90,17 @@ Validates and processes Site ID to Job Code mapping files.
   2026-01-01 are "New"; dates before are "Old". The cutoff is
   constructed with `new Date(2026, 0, 1)` (not from a string) to
   avoid UTC-offset misclassification in non-UTC timezones.
+- **De-duplication**: the same Site ID-JC combination repeats across the
+  source files (normal in daily work). Only one row per combination is
+  written to the output — the first occurrence of each Old/New class.
+  Rows whose date could not be parsed (blank Old/New) are dropped when
+  the same combination also has a classified row.
+- **Old/New conflict check**: a combination classified once as "Old" and
+  once as "New" is a conflict. **Both** rows are kept (one Old, one New),
+  filled red in the workbook, counted on the "Old/New Conflicts" stat
+  card, and listed in the `#siteIdOldNewPanel` box with the dates, the
+  occurrence count, and the source file for each side.
+  Implemented in `dedupeAndCheckConflicts()` in `siteIdJc.js`.
 - Output is a single-sheet Excel file: Site ID-JC | Task Date | Old/New | Contractor
 - Fully self-contained, no dependency on other tabs
 
@@ -276,7 +287,7 @@ must then be pasted into `APPLIST_ENDPOINT` in `appData.js`.
 - `sw.js` caches all static assets for offline use
 - **Always bump the cache version string in `sw.js` before
   pushing any update**
-- Current cache version: `task-tracker-v2.190`
+- Current cache version: `task-tracker-v2.193`
 - Version format: always two digits after the dot (e.g. `v2.10`,
   `v2.11`) — never single digit minor (not `v2.9`)
 

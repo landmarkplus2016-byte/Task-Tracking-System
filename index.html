@@ -250,11 +250,24 @@
             <section class="results-section" id="siteIdResultsSection" hidden>
                 <h2>Site ID-JC Output</h2>
 
-                <div class="results-grid results-grid--single">
+                <div class="results-grid results-grid--triple">
                     <div class="result-card result-total">
                         <div class="result-number" id="siteIdRowCount">0</div>
-                        <div class="result-label">Rows Generated</div>
+                        <div class="result-label">Unique Rows</div>
                     </div>
+                    <div class="result-card result-unchanged">
+                        <div class="result-number" id="siteIdDupeRemoved">0</div>
+                        <div class="result-label">Duplicates Removed</div>
+                    </div>
+                    <div class="result-card result-conflict">
+                        <div class="result-number" id="siteIdConflictCount">0</div>
+                        <div class="result-label">Old/New Conflicts</div>
+                    </div>
+                </div>
+
+                <div class="jc-conflicts-panel" id="siteIdOldNewPanel" hidden>
+                    <h3 id="siteIdOldNewTitle"></h3>
+                    <ul id="siteIdOldNewList"></ul>
                 </div>
 
                 <div class="jc-conflicts-panel" id="siteIdDuplicateJcPanel" hidden>
