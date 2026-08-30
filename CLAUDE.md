@@ -97,11 +97,15 @@ Validates and processes Site ID to Job Code mapping files.
   the same combination also has a classified row.
 - **Old/New conflict check**: a combination classified once as "Old" and
   once as "New" is a conflict. **Both** rows are kept (one Old, one New),
-  filled red in the workbook, counted on the "Old/New Conflicts" stat
-  card, and listed in the `#siteIdOldNewPanel` box with the dates, the
-  occurrence count, and the source file for each side.
+  filled red in the workbook, marked `"Conflict"` in the `Conflict`
+  column, counted on the "Old/New Conflicts" stat card, and listed in the
+  `#siteIdOldNewPanel` box with the dates, the occurrence count, and the
+  source file for each side.
   Implemented in `dedupeAndCheckConflicts()` in `siteIdJc.js`.
-- Output is a single-sheet Excel file: Site ID-JC | Task Date | Old/New | Contractor
+- Output is a single-sheet Excel file: Site ID-JC | Task Date | Old/New |
+  Contractor | Conflict. The `Conflict` column holds `"Conflict"` on both
+  rows of a conflicting pair and is blank otherwise; an autofilter is set
+  on the header row so it can be filtered straight away.
 - Fully self-contained, no dependency on other tabs
 
 ### 4. Allowance Checker (`#panelAllowanceChecker`)
@@ -287,7 +291,7 @@ must then be pasted into `APPLIST_ENDPOINT` in `appData.js`.
 - `sw.js` caches all static assets for offline use
 - **Always bump the cache version string in `sw.js` before
   pushing any update**
-- Current cache version: `task-tracker-v2.193`
+- Current cache version: `task-tracker-v2.194`
 - Version format: always two digits after the dot (e.g. `v2.10`,
   `v2.11`) — never single digit minor (not `v2.9`)
 

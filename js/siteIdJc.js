@@ -11,6 +11,7 @@
  *   B  Task Date    – date value from the sheet
  *   C  Old/New      – date < 2026-01-01 → "Old", else → "New"
  *   D  Contractor   – contractor / installation team
+ *   E  Conflict     – "Conflict" when the same combo is both Old and New
  *
  * Sheet detection:
  *   Any sheet whose name contains "Tracking" (case-insensitive).
@@ -285,7 +286,10 @@ const SiteIdJc = (() => {
             keep.forEach(k => {
                 const e = rec.variants.get(k).entry;
                 if (isConflict) conflictRows.add(dataRows.length);
-                dataRows.push([e.combo, e.date, e.oldNew, e.contractor]);
+                dataRows.push([
+                    e.combo, e.date, e.oldNew, e.contractor,
+                    isConflict ? 'Conflict' : '',
+                ]);
             });
         });
 
@@ -299,7 +303,7 @@ const SiteIdJc = (() => {
 
     /* ── Excel workbook builder ───────────────────────────────── */
     function buildWorkbook(dataRows, conflictRows = new Set()) {
-        const headers = ['Site ID-JC', 'Task Date', 'Old/New', 'Contractor'];
+        const headers = ['Site ID-JC', 'Task Date', 'Old/New', 'Contractor', 'Conflict'];
         const ws      = XLSX.utils.aoa_to_sheet([headers, ...dataRows]);
 
         const widths = headers.map(h => h.length);
@@ -326,6 +330,14 @@ const SiteIdJc = (() => {
         }
 
         ws['!freeze'] = { xSplit: 0, ySplit: 1 };
+
+        // Header autofilter so the Conflict column can be filtered on open
+        ws['!autofilter'] = {
+            ref: XLSX.utils.encode_range(
+                { r: 0, c: 0 },
+                { r: dataRows.length, c: headers.length - 1 }
+            ),
+        };
 
         const wb = XLSX.utils.book_new();
         XLSX.utils.book_append_sheet(wb, ws, 'Tracking');
