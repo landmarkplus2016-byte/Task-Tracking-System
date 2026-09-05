@@ -332,6 +332,16 @@ const AllowanceChecker = (() => {
 
         const TEAM_FIELDS_LOCAL = ['engineer', 'tech1', 'tech2', 'tech3'];
 
+        /* Record one worked day for a person under the row's coordinator.
+           Coordinator falls back to the source sheet name when the row's
+           Coordinator column is blank. Days live in a Set so the same person
+           on several rows of the same day counts once. */
+        function addCoordDay(person, row) {
+            const coord = (row.coordinator || '').trim() || (row.__source__ || '(unknown)');
+            if (!person.coordDays.has(coord)) person.coordDays.set(coord, new Set());
+            person.coordDays.get(coord).add((row.day || '').trim());
+        }
+
         for (const row of filteredRows) {
             const allowancePerPerson = parseFloat(row.allowance) || 0;
             const hasVacation        = (row.vacationAllowance || '').trim() !== '';
@@ -361,6 +371,7 @@ const AllowanceChecker = (() => {
                         name:           displayName,
                         rows:           0,
                         daysWorked:     new Set(),
+                        coordDays:      new Map(),
                         allowanceTotal: 0,
                         vacationTotal:  0,
                         bankAccount:    sal ? sal.bankAccount : '',
@@ -373,6 +384,7 @@ const AllowanceChecker = (() => {
                 const person = personMap.get(normKey);
                 person.rows++;
                 person.daysWorked.add((row.day || '').trim());
+                addCoordDay(person, row);
                 person.allowanceTotal += allowancePerPerson;
 
                 if (hasVacation && sal && sal.dailySalary > 0) {
@@ -402,6 +414,7 @@ const AllowanceChecker = (() => {
                         name:           displayName,
                         rows:           0,
                         daysWorked:     new Set(),
+                        coordDays:      new Map(),
                         allowanceTotal: 0,
                         vacationTotal:  0,
                         bankAccount:    sal ? sal.bankAccount : '',
@@ -412,6 +425,7 @@ const AllowanceChecker = (() => {
                 const person = personMap.get(normKey);
                 person.rows++;
                 person.daysWorked.add((row.day || '').trim());
+                addCoordDay(person, row);
                 person.allowanceTotal += allowancePerPerson;
 
                 if (hasVacation && sal && sal.dailySalary > 0) {
@@ -435,7 +449,14 @@ const AllowanceChecker = (() => {
             });
 
         const people = Array.from(personMap.values())
-            .map(p => ({ ...p, daysWorked: p.daysWorked.size, grandTotal: p.allowanceTotal + p.vacationTotal }))
+            .map(p => ({
+                ...p,
+                daysWorked: p.daysWorked.size,
+                coordDays:  Array.from(p.coordDays.entries())
+                                 .map(([coordinator, days]) => ({ coordinator, days: days.size }))
+                                 .sort((a, b) => b.days - a.days || a.coordinator.localeCompare(b.coordinator)),
+                grandTotal: p.allowanceTotal + p.vacationTotal,
+            }))
             .sort((a, b) => a.name.localeCompare(b.name));
 
         return { people, grandTotal, calcWarnings, calcErrors };
@@ -1446,9 +1467,16 @@ const AllowanceChecker = (() => {
             .sort((a, b) => b.daysWorked - a.daysWorked || a.name.localeCompare(b.name));
         const utilizationRows = teamPeople.map(p => {
             const utilPct = Math.ceil(p.daysWorked / 13 * 100);
+            const coordChips = (p.coordDays || []).map(c => `
+                <span class="util-coord-chip">
+                    <span class="util-coord-name">${esc(c.coordinator)}</span>
+                    <span class="util-coord-days">${c.days}</span>
+                </span>
+            `).join('');
             return `
                 <tr>
                     <td>${esc(p.name)}</td>
+                    <td class="util-coord-cell">${coordChips || '<span class="allowance-empty">—</span>'}</td>
                     <td class="allowance-td-num">${p.daysWorked}</td>
                     <td class="allowance-td-num">${utilPct}%</td>
                 </tr>
@@ -1462,12 +1490,13 @@ const AllowanceChecker = (() => {
                     <thead>
                         <tr>
                             <th>Name</th>
+                            <th>Days per Coordinator</th>
                             <th class="allowance-th-num">Days Worked</th>
                             <th class="allowance-th-num">Utilization</th>
                         </tr>
                     </thead>
                     <tbody>
-                        ${utilizationRows || '<tr><td colspan="3" class="allowance-empty">No data</td></tr>'}
+                        ${utilizationRows || '<tr><td colspan="4" class="allowance-empty">No data</td></tr>'}
                     </tbody>
                 </table>
             </div>

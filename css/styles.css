@@ -830,6 +830,34 @@ main {
     font-weight: 400;
 }
 
+/* ── Team Utilization — days per coordinator chips ─────────── */
+.util-coord-cell { padding: 6px 14px; }
+
+.util-coord-chip {
+    display: inline-flex;
+    align-items: center;
+    gap: 6px;
+    background: var(--gray-50, #f9fafb);
+    border: 1px solid var(--gray-200);
+    border-radius: 999px;
+    padding: 2px 4px 2px 10px;
+    margin: 2px 4px 2px 0;
+    font-size: .78rem;
+    color: var(--gray-700);
+    white-space: nowrap;
+}
+
+.util-coord-days {
+    display: inline-block;
+    min-width: 20px;
+    padding: 1px 6px;
+    border-radius: 999px;
+    background: var(--gray-200);
+    color: var(--gray-800);
+    font-weight: 600;
+    text-align: center;
+}
+
 /* ── Settings (admin) tab ──────────────────────────────────── */
 .tab-btn--settings { border-top: 1px solid rgba(255, 255, 255, .08); }
 
